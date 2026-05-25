@@ -54,6 +54,7 @@ def extract_digital_pdf_text(file_path: str) -> list:
         reader = PdfReader(file_path)
         text_lines = []
         for i, page in enumerate(reader.pages):
+            text_lines.append(f"--- PAGE {i+1} ---")
             text = page.extract_text()
             if text:
                 for line in text.split("\n"):
@@ -93,6 +94,7 @@ def perform_ocr_on_scanned_pdf(file_path: str, progress_callback=None) -> list:
             
         text_lines = []
         for idx, page_idx in enumerate(pages_to_scan):
+            text_lines.append(f"--- PAGE {page_idx+1} ---")
             # Render page high-res bitmap (scale=2)
             page = doc[page_idx]
             bitmap = page.render(scale=2)

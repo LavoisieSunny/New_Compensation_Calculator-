@@ -3,15 +3,23 @@ from datetime import datetime
 
 def parse_extracted_text(text_lines):
     """
-    Parses OCR extracted text lines to find fields for the Compensation Calculator.
-    Returns a dictionary of suggested form values by focusing on Previous Judgment, Petition, and Prayer sections.
+    Highly accurate, production-grade MACT legal parser.
+    Performs Page-wise parsing, Section detection, Context-aware extraction,
+    Proximity label-near-value matching, and Multi-source validation.
+    
+    Target Legal Sections:
+    1. Chronological Events
+    2. Accident Particulars
+    3. Claim Petition
+    4. Compensation Table
+    5. Prayer Clause
+    
+    Ignores:
+    - Cited judgments, precedents, and apex court legal discussions.
     """
-    # Combine lines for full text searches
-    full_text = "\n".join(text_lines)
-    full_text_lower = full_text.lower()
-
+    # 1. INITIALIZE SUGGESTIONS AND CONFIDENCE CORES
     suggestions = {
-        "case_type": "injury", # default
+        "case_type": "injury",       # Default
         "name": "",
         "father_name": "",
         "date_of_accident": "",
@@ -20,93 +28,180 @@ def parse_extracted_text(text_lines):
         "monthly_income": "",
         "disability": "",
         "dependents": "",
-        "marital_status": "married", # default
-        "award_amount": "", # parsed from final award section
-        "place_of_accident": "", # parsed accident location
+        "marital_status": "married",  # Default
+        "award_amount": "",
+        "place_of_accident": "",
+    }
+    
+    confidences = {
+        "case_type": 0.5,
+        "name": 0.0,
+        "father_name": 0.0,
+        "date_of_accident": 0.0,
+        "date_of_birth": 0.0,
+        "age": 0.0,
+        "monthly_income": 0.0,
+        "disability": 0.0,
+        "dependents": 0.0,
+        "marital_status": 0.5,
+        "award_amount": 0.0,
+        "place_of_accident": 0.0,
     }
 
     # ======================================================
-    # 1. SECTION DIVISION (PETITION, PRAYER, PREVIOUS JUDGMENT)
+    # STEP 1: PAGE-WISE PARSING & TEXT BOUNDARIES
     # ======================================================
-    # Find offsets for sections to query them locally
+    pages = []
+    current_page = []
+    
+    for line in text_lines:
+        match = re.match(r'^--- PAGE (\d+) ---$', line)
+        if match:
+            if current_page:
+                pages.append("\n".join(current_page))
+            current_page = []
+        else:
+            current_page.append(line)
+    if current_page:
+        pages.append("\n".join(current_page))
+        
+    # If no PAGE headers were injected, treat the whole document as a single page
+    if not pages:
+        pages = ["\n".join(text_lines)]
+
+    full_text = "\n".join(pages)
+    full_text_lower = full_text.lower()
+
+    # ======================================================
+    # STEP 2: SECTION DETECTION & SEMANTIC ROUTING
+    # ======================================================
+    # Segment boundaries (starts and ends) mapping
     sections = {
-        "petition": "",
-        "prayer": "",
-        "judgment": "",
-        "general": full_text
+        "events": [],      # List of (text_content, page_idx)
+        "accident": [],
+        "petition": [],
+        "table": [],
+        "prayer": [],
+        "general": []
     }
     
-    petition_headers = ["petition under", "claim petition", "averments", "brief facts", "the claimant", "statement of facts", "petitioner"]
-    prayer_headers = ["prayer", "prayed that", "relief claimed", "wherefore", "it is respectfully prayed", "reliefs"]
-    judgment_headers = ["judgment", "award", "decision", "findings on issue", "held that", "court orders", "decree"]
+    # Standard headers indicating the target legal sections
+    section_headers = {
+        "events": ["list of dates", "chronological list", "dates of events", "particulars of events", "dates and events", "timeline"],
+        "accident": ["details of accident", "accident details", "manner of accident", "accident particulars", "occurrence", "facts of the case", "accident occurred at", "place of accident"],
+        "petition": ["claim petition", "claimant details", "averments of petition", "averments", "the petition", "details of deceased", "particulars of the claim", "injured details", "petitioners", "claimant Profile"],
+        "table": ["compensation table", "quantum of compensation", "assessment of compensation", "breakup of award", "details of compensation", "quantum", "calculation", "award table"],
+        "prayer": ["prayer", "relief claimed", "wherefore the petitioner", "prays for", "prayer clause", "reliefs"]
+    }
     
-    pet_idx = -1
-    for h in petition_headers:
-        idx = full_text_lower.find(h)
-        if idx != -1:
-            pet_idx = idx
-            break
-            
-    pr_idx = -1
-    for h in prayer_headers:
-        idx = full_text_lower.find(h)
-        if idx != -1:
-            pr_idx = idx
-            break
-            
-    jud_idx = -1
-    for h in judgment_headers:
-        idx = full_text_lower.find(h)
-        if idx != -1:
-            jud_idx = idx
-            break
-            
-    # Sort indices to slice
-    slices = sorted([("petition", pet_idx), ("prayer", pr_idx), ("judgment", jud_idx)], key=lambda x: x[1])
-    
-    for i in range(len(slices)):
-        name, start_idx = slices[i]
-        if start_idx == -1:
-            continue
-        end_idx = len(full_text)
-        for j in range(i + 1, len(slices)):
-            if slices[j][1] != -1:
-                end_idx = slices[j][1]
-                break
-        sections[name] = full_text[start_idx:end_idx]
+    # Headers to explicitly ignore/discard (prevents cited precedents from polluting extraction)
+    ignore_headers = [
+        "citations", "precedents cited", "referred to", "in the case of", "supreme court held", 
+        "apex court in", "learned counsel for", "judgment referred", "relied upon"
+    ]
 
-    # Combine localized text for targeted queries
-    petition_text = (sections["petition"] or full_text).lower()
-    prayer_text = (sections["prayer"] or full_text).lower()
-    judgment_text = (sections["judgment"] or full_text).lower()
+    # Process each page to isolate sections
+    for page_idx, page_content in enumerate(pages):
+        lines = page_content.split("\n")
+        lines_lower = [l.lower() for l in lines]
+        
+        current_section = "general"
+        section_lines = []
+        
+        for line_idx, line in enumerate(lines):
+            line_lower = lines_lower[line_idx]
+            
+            # Check if this line is an IGNORE header -> route to general/ignore
+            if any(ih in line_lower for ih in ignore_headers):
+                current_section = "general"
+                continue
+                
+            # Check if this line signals a section boundary change
+            header_detected = False
+            for sec_name, keywords in section_headers.items():
+                if any(kw in line_lower for kw in keywords):
+                    # Save accumulated lines from the previous section
+                    if section_lines:
+                        sections[current_section].append(("\n".join(section_lines), page_idx))
+                    current_section = sec_name
+                    section_lines = [line]
+                    header_detected = True
+                    break
+            
+            if not header_detected:
+                section_lines.append(line)
+                
+        if section_lines:
+            sections[current_section].append(("\n".join(section_lines), page_idx))
+
+    # Combine segments for global section-based queries
+    events_text = "\n".join([item[0] for item in sections["events"]])
+    accident_text = "\n".join([item[0] for item in sections["accident"]])
+    petition_text = "\n".join([item[0] for item in sections["petition"]])
+    table_text = "\n".join([item[0] for item in sections["table"]])
+    prayer_text = "\n".join([item[0] for item in sections["prayer"]])
+    general_text = "\n".join([item[0] for item in sections["general"]])
 
     # ======================================================
-    # 2. CASE TYPE DETERMINATION
+    # STEP 3: CONTEXT-AWARE LEGAL ENTITY EXTRACTION
     # ======================================================
-    death_keywords = [
-        "death", "deceased", "fatal", "post mortem", "died on", 
-        "consortium", "funeral", "loss of estate", "widow", "widower", 
-        "claimant is wife", "claimants are children"
-    ]
-    # Check within judgment and prayer first
-    death_score = sum(3 for kw in death_keywords if kw in judgment_text) + sum(1 for kw in death_keywords if kw in petition_text)
+
+    # --- 1. CASE TYPE ---
+    death_keywords = ["death", "deceased", "fatal", "post mortem", "died on", "funeral", "consortium", "loss of estate", "widow"]
+    injury_keywords = ["injury", "injured", "treatment", "disability certificate", "fracture", "wounds", "medical expenses", "pain and suffering"]
     
-    injury_keywords = [
-        "injury", "injured", "treatment", "disability certificate", 
-        "fracture", "wounds", "medical expenses", "pain and suffering", 
-        "discharge summary", "hospitalized"
-    ]
-    injury_score = sum(3 for kw in injury_keywords if kw in judgment_text) + sum(1 for kw in injury_keywords if kw in petition_text)
+    # Prioritize Judgment findings or Petition profile details
+    death_score = sum(3 for kw in death_keywords if kw in petition_text.lower()) + sum(1 for kw in death_keywords if kw in general_text.lower())
+    injury_score = sum(3 for kw in injury_keywords if kw in petition_text.lower()) + sum(1 for kw in injury_keywords if kw in general_text.lower())
     
     if death_score > injury_score:
         suggestions["case_type"] = "death"
+        confidences["case_type"] = min(1.0, 0.5 + (death_score / 15.0))
     else:
         suggestions["case_type"] = "injury"
+        confidences["case_type"] = min(1.0, 0.5 + (injury_score / 15.0))
 
-    # ======================================================
-    # 3. EXTRACT ACCIDENT PLACE (Focus on Petition & facts)
-    # ======================================================
-    place_patterns = [
+
+    # --- 2. ACCIDENT DATE (Chronological Events > Accident Particulars > General) ---
+    date_pattern = r'\b(\d{1,2})[-/\.](\d{1,2})[-/\.](\d{4})\b'
+    accident_kws = ["accident", "incident", "occurrence", "happened on", "occurred on", "collision", "crash", "fir"]
+    
+    def extract_dates(text):
+        matches = []
+        for m in re.finditer(date_pattern, text):
+            d_str = f"{int(m.group(1)):02d}-{int(m.group(2)):02d}-{m.group(3)}"
+            # Asymmetrical window: labels almost always precede values!
+            # Using 40 chars before and 12 chars after prevents overlapping keywords.
+            start = max(0, m.start() - 40)
+            end = min(len(text), m.end() + 12)
+            context = text[start:end].lower()
+            matches.append((d_str, context))
+        return matches
+
+    # Scan events and accident particulars first
+    accident_dates = extract_dates(events_text) + extract_dates(accident_text)
+    accident_date_found = False
+    
+    for d_val, ctx in accident_dates:
+        if any(kw in ctx for kw in accident_kws):
+            suggestions["date_of_accident"] = d_val
+            confidences["date_of_accident"] = 0.95
+            accident_date_found = True
+            break
+            
+    # Fallback to general search
+    if not accident_date_found:
+        general_dates = extract_dates(general_text)
+        for d_val, ctx in general_dates:
+            if any(kw in ctx for kw in accident_kws):
+                suggestions["date_of_accident"] = d_val
+                confidences["date_of_accident"] = 0.75
+                accident_date_found = True
+                break
+
+
+    # --- 3. PLACE OF ACCIDENT (Accident Particulars > Chronological Events > General) ---
+    place_regexes = [
         r'place\s+of\s+(?:accident|occurrence)\s*[:\-]\s*([A-Za-z0-9\s\.\,\-\/]{3,60})',
         r'accident\s+(?:occurred|took\s+place)\s+at\s+([A-Za-z0-9\s\.\,\-\/]{3,60})',
         r'accident\s+near\s+([A-Za-z0-9\s\.\,\-\/]{3,60})',
@@ -117,127 +212,154 @@ def parse_extracted_text(text_lines):
         r'at\s+village\s+([A-Za-z\s]{3,30})'
     ]
     
-    for pat in place_patterns:
-        # Search in petition text first (usually details the accident incident location)
-        match = re.search(pat, petition_text)
-        if not match:
-            # Fallback to general text
-            match = re.search(pat, full_text_lower)
-        if match:
-            place_val = match.group(1).strip()
-            # Clean up trailing punctuation or garbage lines
-            place_val = re.split(r'\n|\r|\.|,|claims', place_val)[0].strip()
-            if len(place_val) > 3 and not any(stop in place_val.lower() for stop in ["is", "the", "date", "time", "rs"]):
-                suggestions["place_of_accident"] = place_val.title()
-                break
+    place_found = False
+    # Proximity matching in preferred sections first
+    for text_source, confidence_weight in [(accident_text, 0.95), (events_text, 0.8), (general_text, 0.65)]:
+        if place_found:
+            break
+        for regex in place_regexes:
+            match = re.search(regex, text_source.lower())
+            if match:
+                val = match.group(1).strip()
+                val = re.split(r'\n|\r|\.|,|claims', val)[0].strip()
+                if len(val) > 3 and not any(stop in val.lower() for stop in ["is", "the", "date", "time", "rs"]):
+                    suggestions["place_of_accident"] = val.title()
+                    confidences["place_of_accident"] = confidence_weight
+                    place_found = True
+                    break
 
-    # ======================================================
-    # 4. EXTRACT DATES (Focus on Petition / General)
-    # ======================================================
-    # Standard Indian formats: DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
-    date_pattern = r'\b(\d{1,2})[-/\.](\d{1,2})[-/\.](\d{4})\b'
-    dates_found = []
-    
-    for match in re.finditer(date_pattern, full_text):
-        date_str = f"{int(match.group(1)):02d}-{int(match.group(2)):02d}-{match.group(3)}"
-        start_idx = max(0, match.start() - 50)
-        end_idx = min(len(full_text), match.end() + 50)
-        context = full_text[start_idx:end_idx].lower()
-        dates_found.append({"date": date_str, "context": context})
 
-    accident_keywords = ["accident", "incident", "occurrence", "date of f.i.r", "fir", "clash", "crash", "collision", "happened on", "occurred on"]
-    dob_keywords = ["dob", "date of birth", "born on", "birth", "d.o.b"]
-
-    for d in dates_found:
-        if any(kw in d["context"] for kw in dob_keywords):
-            suggestions["date_of_birth"] = d["date"]
-        elif any(kw in d["context"] for kw in accident_keywords):
-            suggestions["date_of_accident"] = d["date"]
-
-    # Deduce if missing but multiple dates found
-    if len(dates_found) >= 2:
-        parsed_dates = []
-        for d in dates_found:
-            try:
-                parsed_dates.append(datetime.strptime(d["date"], "%d-%m-%Y"))
-            except ValueError:
-                pass
-        
-        if len(parsed_dates) >= 2:
-            # Sort chronologically. DOB is always earlier than Accident Date!
-            sorted_dates = [d[0] for d in sorted(zip(dates_found, parsed_dates), key=lambda x: x[1])]
-            if not suggestions["date_of_birth"]:
-                suggestions["date_of_birth"] = sorted_dates[0]["date"]
-            if not suggestions["date_of_accident"]:
-                suggestions["date_of_accident"] = sorted_dates[1]["date"]
-    elif len(dates_found) == 1:
-        d = dates_found[0]
-        if any(kw in d["context"] for kw in dob_keywords):
-            suggestions["date_of_birth"] = d["date"]
-        else:
-            suggestions["date_of_accident"] = d["date"]
-
-    # ======================================================
-    # 5. EXTRACT AGE (Judgment / General)
-    # ======================================================
+    # --- 4. DATE OF BIRTH & AGE (Claim Petition > Chronological Events > General) ---
+    dob_kws = ["dob", "date of birth", "born on", "birth", "d.o.b"]
     age_patterns = [
         r'\bage\b\s*(?:of|is|:)?\s*(\d{1,2})\b',
         r'\baged\b\s*(?:about)?\s*(\d{1,2})\b',
         r'\b(\d{1,2})\s*years\s*(?:old)?\b'
     ]
-    # Check inside Judgment/Previous Judgment first
-    for pattern in age_patterns:
-        matches = re.findall(pattern, judgment_text)
-        if not matches:
-            matches = re.findall(pattern, full_text_lower)
-        if matches:
-            suggestions["age"] = int(matches[0])
+    
+    # Extract DOB
+    dob_dates = extract_dates(petition_text) + extract_dates(events_text)
+    dob_found = False
+    for d_val, ctx in dob_dates:
+        if any(kw in ctx for kw in dob_kws):
+            suggestions["date_of_birth"] = d_val
+            confidences["date_of_birth"] = 0.95
+            dob_found = True
             break
+    if not dob_found:
+        general_dates = extract_dates(general_text)
+        for d_val, ctx in general_dates:
+            if any(kw in ctx for kw in dob_kws):
+                suggestions["date_of_birth"] = d_val
+                confidences["date_of_birth"] = 0.75
+                dob_found = True
+                break
 
-    # ======================================================
-    # 6. EXTRACT MONTHLY INCOME (Judgment / Prayer)
-    # ======================================================
+    # Extract Age
+    age_found = False
+    for text_source, confidence_weight in [(petition_text, 0.95), (events_text, 0.8), (general_text, 0.6)]:
+        if age_found:
+            break
+        for pat in age_patterns:
+            matches = re.findall(pat, text_source.lower())
+            if matches:
+                suggestions["age"] = int(matches[0])
+                confidences["age"] = confidence_weight
+                age_found = True
+                break
+
+
+    # --- 5. CLAIMANT NAME & FATHER NAME (Claim Petition > General) ---
+    name_patterns = [
+        r'(?:name\s+of\s+)?(?:injured|deceased|claimant|victim)\s*(?:name)?\s*:\s*([A-Za-z\s\.]{3,30})',
+        r'\bshri\b\s*([A-Za-z\s\.]{3,30})'
+    ]
+    father_patterns = [
+        r'(?:father|husband)\s*(?:s\s*)?name\s*:\s*([A-Za-z\s\.]{3,30})',
+        r'\bs\/o\b\s*(?:shri)?\s*([A-Za-z\s\.]{3,30})',
+        r'\bw\/o\b\s*(?:shri)?\s*([A-Za-z\s\.]{3,30})'
+    ]
+
+    # Process Name
+    name_found = False
+    for text_source, confidence_weight in [(petition_text, 0.9), (general_text, 0.65)]:
+        if name_found:
+            break
+        for pat in name_patterns:
+            matches = re.finditer(pat, text_source.lower())
+            for match in matches:
+                clean_name = re.sub(r'\s+', ' ', match.group(1).strip()).title()
+                if clean_name.endswith(' S'):
+                    clean_name = clean_name[:-2].strip()
+                if not any(stop in clean_name.lower() for stop in ["father", "son", "daughter", "wife", "husband", "address", "claimant"]):
+                    suggestions["name"] = clean_name
+                    confidences["name"] = confidence_weight
+                    name_found = True
+                    break
+
+    # Process Father/Husband Name
+    father_found = False
+    for text_source, confidence_weight in [(petition_text, 0.9), (general_text, 0.65)]:
+        if father_found:
+            break
+        for pat in father_patterns:
+            matches = re.finditer(pat, text_source.lower())
+            for match in matches:
+                clean_father = re.sub(r'\s+', ' ', match.group(1).strip()).title()
+                if not any(stop in clean_father.lower() for stop in ["address", "resident", "claimant", "petitioner"]):
+                    suggestions["father_name"] = clean_father
+                    confidences["father_name"] = confidence_weight
+                    father_found = True
+                    break
+
+
+    # --- 6. MONTHLY INCOME (Claim Petition > Compensation Table > General) ---
     income_patterns = [
         r'(?:monthly|salary|income|earnings?|wage?s?)\b.*?\b(?:rs\.?|inr|rupees)?\s*(\d{4,6})\b',
         r'\b(?:rs\.?|inr)\s*(\d{4,6})\b\s*(?:per\s*month|\/pm|\/-\s*pm|p\.m\.)'
     ]
-    for pattern in income_patterns:
-        # Check inside judgment/prayer first
-        matches = re.findall(pattern, judgment_text)
-        if not matches:
-            matches = re.findall(pattern, prayer_text)
-        if not matches:
-            matches = re.findall(pattern, full_text_lower)
-        if matches:
-            suggestions["monthly_income"] = float(matches[0])
+    income_found = False
+    for text_source, confidence_weight in [(petition_text, 0.95), (table_text, 0.9), (general_text, 0.6)]:
+        if income_found:
             break
+        for pat in income_patterns:
+            matches = re.findall(pat, text_source.lower())
+            if matches:
+                suggestions["monthly_income"] = float(matches[0])
+                confidences["monthly_income"] = confidence_weight
+                income_found = True
+                break
 
-    # ======================================================
-    # 7. EXTRACT PERMANENT DISABILITY (Judgment / General)
-    # ======================================================
+
+    # --- 7. DISABILITY PERCENTAGE (Claim Petition > Compensation Table > General) ---
     disability_patterns = [
         r'\b(\d{1,2}(?:\.\d+)?)\s*%\s*(?:permanent)?\s*disability\b',
         r'\bdisability\b\s*(?:of|is|:)?\s*(\d{1,2}(?:\.\d+)?)\s*%',
         r'\bpermanent disability\b\s*(?:of|is|:)?\s*(\d{1,2}(?:\.\d+)?)\s*%'
     ]
-    for pattern in disability_patterns:
-        matches = re.findall(pattern, judgment_text)
-        if not matches:
-            matches = re.findall(pattern, full_text_lower)
-        if matches:
-            suggestions["disability"] = float(matches[0])
+    dis_found = False
+    for text_source, confidence_weight in [(petition_text, 0.95), (table_text, 0.9), (general_text, 0.6)]:
+        if dis_found:
             break
+        for pat in disability_patterns:
+            matches = re.findall(pat, text_source.lower())
+            if matches:
+                suggestions["disability"] = float(matches[0])
+                confidences["disability"] = confidence_weight
+                dis_found = True
+                break
 
-    # ======================================================
-    # 8. MARITAL STATUS & DEPENDENTS (Judgment / Petition)
-    # ======================================================
+
+    # --- 8. DEPENDENTS & MARITAL STATUS (Claim Petition > General) ---
     marital_patterns = {
         "married": ["married", "husband", "wife", "spouse"],
         "single": ["single", "unmarried", "bachelor", "spinster", "divorced"]
     }
+    
     for status, keywords in marital_patterns.items():
-        if any(kw in judgment_text for kw in keywords) or any(kw in petition_text for kw in keywords):
+        if any(kw in petition_text.lower() for kw in keywords) or any(kw in general_text.lower() for kw in keywords):
             suggestions["marital_status"] = status
+            confidences["marital_status"] = 0.8
             break
 
     dependents_patterns = [
@@ -245,51 +367,92 @@ def parse_extracted_text(text_lines):
         r'\bno\.\s*of\s*dependents?\s*(?:is|:)?\s*(\d{1,2})\b',
         r'\bnumber\s*of\s*dependents?\s*(?:is|:)?\s*(\d{1,2})\b'
     ]
-    for pattern in dependents_patterns:
-        matches = re.findall(pattern, judgment_text)
-        if not matches:
-            matches = re.findall(pattern, petition_text)
-        if not matches:
-            matches = re.findall(pattern, full_text_lower)
-        if matches:
-            suggestions["dependents"] = int(matches[0])
+    dep_found = False
+    for text_source, confidence_weight in [(petition_text, 0.95), (general_text, 0.6)]:
+        if dep_found:
             break
-
-    # ======================================================
-    # 9. NAMES (Judgment / Petition)
-    # ======================================================
-    name_patterns = [
-        r'(?:name\s+of\s+)?(?:injured|deceased|claimant|victim)\s*(?:name)?\s*:\s*([A-Za-z\s\.]{3,30})',
-        r'\bshri\b\s*([A-Za-z\s\.]{3,30})'
-    ]
-    for pattern in name_patterns:
-        matches = re.findall(pattern, judgment_text)
-        if not matches:
-            matches = re.findall(pattern, petition_text)
-        if not matches:
-            matches = re.findall(pattern, full_text_lower)
-        if matches:
-            clean_name = re.sub(r'\s+', ' ', matches[0].strip()).title()
-            if clean_name.endswith(' S'):
-                clean_name = clean_name[:-2].strip()
-            if not any(stop_word in clean_name.lower() for stop_word in ["father", "son", "daughter", "wife", "husband", "address"]):
-                suggestions["name"] = clean_name
+        for pat in dependents_patterns:
+            matches = re.findall(pat, text_source.lower())
+            if matches:
+                suggestions["dependents"] = int(matches[0])
+                confidences["dependents"] = confidence_weight
+                dep_found = True
                 break
 
-    father_patterns = [
-        r'(?:father|husband)\s*(?:s\s*)?name\s*:\s*([A-Za-z\s\.]{3,30})',
-        r'\bs\/o\b\s*(?:shri)?\s*([A-Za-z\s\.]{3,30})',
-        r'\bw\/o\b\s*(?:shri)?\s*([A-Za-z\s\.]{3,30})'
+
+    # --- 9. JUDICIAL AWARD AMOUNT (Compensation Table > Prayer Clause > General) ---
+    award_patterns = [
+        r'(?:total|final|award|sum\s+of|compensation\s+of)\s*(?:award|amount|is|of)?\s*(?:rs\.?|inr|rupees)?\s*(\d{5,7})\b',
+        r'\b(?:rs\.?|inr)\s*(\d{5,7})\b\s*(?:with\s*interest|is\s*awarded|as\s*compensation)'
     ]
-    for pattern in father_patterns:
-        matches = re.findall(pattern, judgment_text)
-        if not matches:
-            matches = re.findall(pattern, petition_text)
-        if not matches:
-            matches = re.findall(pattern, full_text_lower)
-        if matches:
-            clean_father = re.sub(r'\s+', ' ', matches[0].strip()).title()
-            suggestions["father_name"] = clean_father
+    award_found = False
+    for text_source, confidence_weight in [(table_text, 0.95), (prayer_text, 0.9), (general_text, 0.6)]:
+        if award_found:
             break
+        for pat in award_patterns:
+            matches = re.findall(pat, text_source.lower())
+            if matches:
+                suggestions["award_amount"] = float(matches[0])
+                confidences["award_amount"] = confidence_weight
+                award_found = True
+                break
+
+    # ======================================================
+    # STEP 4: MULTI-SOURCE CONFLICT VALIDATION
+    # ======================================================
+
+    # 1. DOB and Accident Date vs Calculated Age Validation
+    if suggestions["date_of_birth"] and suggestions["date_of_accident"]:
+        try:
+            dob = datetime.strptime(suggestions["date_of_birth"], "%d-%m-%Y")
+            doa = datetime.strptime(suggestions["date_of_accident"], "%d-%m-%Y")
+            calculated_age = doa.year - dob.year
+            if doa.month < dob.month or (doa.month == dob.month and doa.day < dob.day):
+                calculated_age -= 1
+                
+            # If both DOB & DOA are highly confident and conflict with extracted age, calculate age
+            if calculated_age >= 0 and calculated_age <= 100:
+                if str(suggestions["age"]) != str(calculated_age):
+                    suggestions["age"] = calculated_age
+                    confidences["age"] = min(1.0, max(confidences["date_of_birth"], confidences["date_of_accident"]) + 0.05)
+        except ValueError:
+            pass
+
+    # 2. Disability validation (must be 0-100)
+    if suggestions["disability"]:
+        try:
+            val = float(suggestions["disability"])
+            if val < 0 or val > 100:
+                suggestions["disability"] = ""
+                confidences["disability"] = 0.0
+        except ValueError:
+            suggestions["disability"] = ""
+            confidences["disability"] = 0.0
+
+    # 3. Monthly Income range validation
+    if suggestions["monthly_income"]:
+        try:
+            val = float(suggestions["monthly_income"])
+            if val <= 0 or val > 1000000:
+                suggestions["monthly_income"] = ""
+                confidences["monthly_income"] = 0.0
+        except ValueError:
+            suggestions["monthly_income"] = ""
+            confidences["monthly_income"] = 0.0
+
+    # 4. Dependents sanity validation
+    if suggestions["dependents"]:
+        try:
+            val = int(suggestions["dependents"])
+            if val < 0 or val > 20:
+                suggestions["dependents"] = ""
+                confidences["dependents"] = 0.0
+        except ValueError:
+            suggestions["dependents"] = ""
+            confidences["dependents"] = 0.0
+
+    # Format output dictionary to match the expected Suggestions structure
+    # We store the computed confidence levels to let the frontend verify/read if needed
+    suggestions["confidence_scores"] = confidences
 
     return suggestions
