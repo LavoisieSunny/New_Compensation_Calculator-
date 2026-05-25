@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compensation Calculator & Centralized Qdrant Vector DB</title>
+    <!-- Google Fonts: Outfit for Headings, Inter for Body -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Legal and Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom Style Sheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    
+    <!-- Glowing background elements -->
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+
+    <div class="app-layout">
+        
+        <!-- ==========================================
+             VERTICAL NAVIGATION SIDEBAR
+             ========================================== -->
+        <aside class="app-sidebar">
+            <div class="sidebar-brand">
+                <i class="fa-solid fa-gavel brand-icon"></i>
+                <div class="brand-text">
+                    <h1>COMPENSATION</h1>
+                    <span>Calculator</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <button type="button" class="nav-item active" data-tab="calculator">
+                    <i class="fa-solid fa-calculator-simple"></i>
+                    <span>Workstation</span>
+                </button>
+                <button type="button" class="nav-item" data-tab="library">
+                    <i class="fa-solid fa-folder-open"></i>
+                    <span>Batch PDF Library</span>
+                    <span id="queue-badge" class="badge-count hidden">0</span>
+                </button>
+                <button type="button" class="nav-item" data-tab="chat">
+                    <i class="fa-solid fa-brain-circuit"></i>
+                    <span>AI Legal Chat</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="db-status">
+                    <span class="status-dot"></span>
+                    <span id="db-status-text">Centralized Qdrant: Connecting...</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ==========================================
+             MAIN CONTENT WORKSPACE
+             ========================================== -->
+        <div class="main-container">
+            
+            <!-- Global Header -->
+            <header class="main-header">
+                <div class="header-title">
+                    <h2 id="tab-title-text">Compensation Workstation</h2>
+                    <span class="header-badge" id="server-badge">
+                        <span class="pulse-indicator active"></span>
+                        <span id="server-status">Connecting Backend...</span>
+                    </span>
+                </div>
+            </header>
+
+            <!-- TAB 1: WORKSTATION & DYNAMIC CALCULATOR -->
+            <div id="tab-calculator" class="tab-viewport active-viewport">
+                <div class="workspace-grid split-50-50">
+                    
+                    <!-- Left: Dynamic Input Form -->
+                    <div class="panel scroll-y">
+                        <div class="panel-header">
+                            <h3><i class="fa-solid fa-file-invoice-dollar text-glow"></i> Case parameters</h3>
+                            <p class="panel-subtitle">Select Injury or Death case type. Fields marked with red asterisk (<span class="req">*</span>) are mandatory.</p>
+                        </div>
+                        
+                        <form id="compensation-form" class="compensation-form">
+                            <!-- Case Type Selector -->
+                            <div class="form-group selector-group">
+                                <label for="case_type" class="main-label">Type of Case <span class="req">*</span></label>
+                                <div class="select-wrapper">
+                                    <select id="case_type" name="case_type" required>
+                                        <option value="" disabled selected>-- Select Injury or Death --</option>
+                                        <option value="injury">Injury Case</option>
+                                        <option value="death">Death Case</option>
+                                    </select>
+                                    <i class="fa-solid fa-chevron-down select-arrow"></i>
+                                </div>
+                            </div>
+
+                            <!-- Single PDF Drag & Drop Uploader (shown after case type selection) -->
+                            <div id="single-upload-section" class="form-group full-width hidden-section">
+                                <label class="main-label">Upload Case PDF for AI Auto-Fill</label>
+                                <div id="single-drop-zone" class="single-drop-zone">
+                                    <div class="single-drop-zone-content">
+                                        <i class="fa-solid fa-file-pdf single-drop-icon" style="color: var(--color-danger); font-size: 2.2rem; margin-bottom: 8px;"></i>
+                                        <p class="single-drop-title">Drag & Drop case PDF here or click to browse</p>
+                                        <p class="single-drop-subtitle">Runs PaddleOCR to autofill previous judgment, petition, and prayer details</p>
+                                        <span class="btn btn-small btn-secondary" style="margin-top: 6px;">Select Document</span>
+                                        <input type="file" id="single-file-input" accept="application/pdf" style="display: none;">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Common Information Container -->
+                            <div id="shared-fields" class="form-grid hidden-section">
+                                <div class="section-divider full-width">
+                                    <span><i class="fa-solid fa-user"></i> Claimant Details</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="name">Name <span class="req">*</span></label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-user-tie field-icon"></i>
+                                        <input type="text" id="name" name="name" placeholder="Enter name" required>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="father_name">Father / Husband Name</label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-users field-icon"></i>
+                                        <input type="text" id="father_name" name="father_name" placeholder="Enter name">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="date_of_birth">Date of Birth <span class="req">*</span></label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-cake-candles field-icon"></i>
+                                        <input type="date" id="date_of_birth" name="date_of_birth" required>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="date_of_accident">Date of Accident <span class="req">*</span></label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-calendar-days field-icon"></i>
+                                        <input type="date" id="date_of_accident" name="date_of_accident" required>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="place_of_accident">Place of Accident</label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-location-dot field-icon"></i>
+                                        <input type="text" id="place_of_accident" name="place_of_accident" placeholder="e.g. NH-3 or Bypass Road">
+                                    </div>
+                                </div>
+
+                                <div class="form-group highlighted-group">
+                                    <label for="age">Calculated Age <span class="req">*</span></label>
+                                    <div class="input-icon-wrapper disabled">
+                                        <i class="fa-solid fa-hourglass-half field-icon"></i>
+                                        <input type="number" id="age" name="age" readonly placeholder="Auto-calculated" required>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="monthly_income">Monthly Income (Rs.) <span class="req">*</span></label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-indian-rupee-sign field-icon"></i>
+                                        <input type="number" id="monthly_income" name="monthly_income" step="any" min="0" placeholder="e.g. 25000" required>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="dependents" id="label-dependents">Number of Dependents <span class="req">*</span></label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-people-roof field-icon"></i>
+                                        <input type="number" id="dependents" name="dependents" min="0" placeholder="e.g. 3">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- DEATH PARAMETERS -->
+                            <div id="death-fields" class="form-grid hidden-section">
+                                <div class="section-divider full-width">
+                                    <span><i class="fa-solid fa-ribbon"></i> Death Parameters</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="marital_status">Marital Status <span class="req">*</span></label>
+                                    <div class="select-wrapper">
+                                        <select id="marital_status" name="marital_status">
+                                            <option value="married" selected>Married</option>
+                                            <option value="single">Single / Bachelor</option>
+                                        </select>
+                                        <i class="fa-solid fa-chevron-down select-arrow"></i>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="future_type">Future Prospects Category <span class="req">*</span></label>
+                                    <div class="select-wrapper">
+                                        <select id="future_type" name="future_type">
+                                            <option value="1">Permanent Salaried Job</option>
+                                            <option value="2" selected>Self-Employed / Casual Worker</option>
+                                        </select>
+                                        <i class="fa-solid fa-chevron-down select-arrow"></i>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="consortium">Loss of Consortium (Rs.)</label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-handshake-angle field-icon"></i>
+                                        <input type="number" id="consortium" name="consortium" value="40000">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="loss_estate">Loss of Estate (Rs.)</label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-briefcase field-icon"></i>
+                                        <input type="number" id="loss_estate" name="loss_estate" value="15000">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="funeral_expenses">Funeral Expenses (Rs.)</label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-coffin field-icon"></i>
+                                        <input type="number" id="funeral_expenses" name="funeral_expenses" value="15000">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- INJURY PARAMETERS -->
+                            <div id="injury-fields" class="form-grid hidden-section">
+                                <div class="section-divider full-width">
+                                    <span><i class="fa-solid fa-crutch"></i> Injury Parameters</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="disability">Permanent Disability (%) <span class="req">*</span></label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-percent field-icon"></i>
+                                        <input type="number" id="disability" name="disability" step="any" min="0" max="100" placeholder="e.g. 35">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="medical_expenses">Medical Expenses (Rs.)</label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-file-medical field-icon"></i>
+                                        <input type="number" id="medical_expenses" name="medical_expenses" placeholder="0">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="future_medical_expenses">Future Medical Expenses (Rs.)</label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-prescription-bottle-medical field-icon"></i>
+                                        <input type="number" id="future_medical_expenses" name="future_medical_expenses" placeholder="0">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="pain_and_suffering">Pain & Suffering (Rs.)</label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-face-sad-tear field-icon"></i>
+                                        <input type="number" id="pain_and_suffering" name="pain_and_suffering" placeholder="0">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="transportation">Transportation (Rs.)</label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-truck-medical field-icon"></i>
+                                        <input type="number" id="transportation" name="transportation" placeholder="0">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="special_diet">Special Diet (Rs.)</label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-apple-whole field-icon"></i>
+                                        <input type="number" id="special_diet" name="special_diet" placeholder="0">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="attender_charges">Attender Charges (Rs.)</label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-hands-holding-child field-icon"></i>
+                                        <input type="number" id="attender_charges" name="attender_charges" placeholder="0">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="loss_of_income">Loss of Income (Rs.)</label>
+                                    <div class="input-icon-wrapper">
+                                        <i class="fa-solid fa-money-bill-trend-up field-icon"></i>
+                                        <input type="number" id="loss_of_income" name="loss_of_income" placeholder="0">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Buttons -->
+                            <div class="form-actions hidden-section" id="form-actions-bar">
+                                <button type="button" id="reset-btn" class="btn btn-secondary"><i class="fa-solid fa-rotate-right"></i> Reset</button>
+                                <button type="submit" id="calculate-btn" class="btn btn-primary"><i class="fa-solid fa-calculator"></i> Calculate</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Right: Dynamic Legal Precedents & Live Preview -->
+                    <div class="panel scroll-y" id="calculator-right-pane">
+                        
+                        <!-- High-Fidelity PDF Preview Panel -->
+                        <div class="card preview-card hidden-section" id="single-preview-card" style="height: 380px; margin-bottom: 24px; padding: 12px; display: flex; flex-direction: column;">
+                            <div class="card-header" style="padding-bottom: 8px; margin-bottom: 8px;">
+                                <h3><i class="fa-solid fa-eye text-glow"></i> Case PDF Preview</h3>
+                                <span id="single-preview-filename" class="badge tech-badge">No File Loaded</span>
+                            </div>
+                            <div class="single-preview-container" id="single-preview-container" style="flex: 1; border: 1px solid var(--border-glass); border-radius: var(--radius-sm); overflow: hidden; background: rgba(0, 0, 0, 0.2);">
+                                <div class="preview-empty-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 10px; opacity: 0.5;">
+                                    <i class="fa-solid fa-file-pdf" style="font-size: 3rem; color: var(--color-primary)"></i>
+                                    <p style="font-size: 0.8rem; color: var(--text-secondary)">Upload a PDF on the left to see the live document preview here.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Real-time Mathematical Heuristics -->
+                        <div class="card metrics-card hidden-section" id="live-metrics-card" style="margin-bottom: 24px;">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-bolt text-warning"></i> Dynamic Legal Heuristics</h3>
+                                <span class="badge state-badge">Live Preview</span>
+                            </div>
+                            <div class="card-body metrics-grid">
+                                <div class="metric-item">
+                                    <span class="metric-label">Calculated Age</span>
+                                    <span class="metric-value" id="live-age">-</span>
+                                </div>
+                                <div class="metric-item">
+                                    <span class="metric-label">Sarla Verma Multiplier</span>
+                                    <span class="metric-value text-glow" id="live-multiplier">-</span>
+                                </div>
+                                <div class="metric-item full-width" id="live-prospects-item">
+                                    <span class="metric-label">Future Prospects</span>
+                                    <div class="prospects-progress-container">
+                                        <span class="metric-value" id="live-prospects">-</span>
+                                        <div class="progress-bar-wrapper">
+                                            <div class="progress-bar-fill" id="live-prospects-bar"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="metric-item full-width" id="live-deductions-item">
+                                    <span class="metric-label">Family Deduction</span>
+                                    <div class="prospects-progress-container">
+                                        <span class="metric-value" id="live-deductions">-</span>
+                                        <div class="progress-bar-wrapper">
+                                            <div class="progress-bar-fill bg-danger" id="live-deductions-bar"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Precedents Benchmarking evaluation -->
+                        <div class="card ocr-card hidden-section" id="evaluator-card">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-balance-scale text-glow"></i> Qdrant Precedents Benchmark</h3>
+                                <button type="button" id="trigger-eval-btn" class="btn btn-small btn-primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Evaluate precedents</button>
+                            </div>
+                            <div class="card-body" id="evaluator-card-body">
+                                <p class="card-text">Once your case parameters are complete, click **Evaluate Precedents** to run a centralized Qdrant semantic analysis against historical judgments.</p>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: CENTRALIZED PDF LIBRARY & QDRANT QUEUE -->
+            <div id="tab-library" class="tab-viewport">
+                <div class="workspace-grid split-40-60">
+                    
+                    <!-- Left: Batch PDF Queue List -->
+                    <div class="panel scroll-y">
+                        <div class="panel-header">
+                            <h3><i class="fa-solid fa-cloud-arrow-up text-glow"></i> Batch PDF Library</h3>
+                            <p class="panel-subtitle">Upload legal petitions or previous judgments. Centralized indexing is performed in background for semantic AI Chat.</p>
+                        </div>
+
+                        <!-- File Input / Drop Zone -->
+                        <div id="drop-zone" class="drop-zone">
+                            <div class="drop-zone-content">
+                                <i class="fa-solid fa-file-pdf drop-icon" style="color: var(--color-danger)"></i>
+                                <p class="drop-title">Drag & Drop legal PDFs here</p>
+                                <p class="drop-subtitle">Upload multiple case documents to Centralized Qdrant Database</p>
+                                <span class="btn btn-small btn-secondary">Select Files</span>
+                                <input type="file" id="file-input" accept="application/pdf" multiple style="display: none;">
+                            </div>
+                        </div>
+
+                        <!-- Centralized List Queue -->
+                        <div class="queue-container">
+                            <div class="queue-header">
+                                <h4>Centralized Uploads queue</h4>
+                                <span id="queue-count-label" class="badge tech-badge">0 Files</span>
+                            </div>
+                            
+                            <div id="batch-file-list" class="batch-file-list">
+                                <!-- Populated dynamically by app.js -->
+                                <div class="empty-state">
+                                    <i class="fa-solid fa-box-open"></i>
+                                    <p>No legal PDFs uploaded yet. Drag and drop PDF claim judgments above to begin centralized vector storage.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: High-Fidelity PDF Previewer -->
+                    <div class="panel split-preview-panel">
+                        <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <h3><i class="fa-solid fa-eye text-glow"></i> Document Preview</h3>
+                            <span id="preview-filename-badge" class="badge tech-badge hidden">No File Loaded</span>
+                        </div>
+                        
+                        <div class="preview-container" id="preview-container">
+                            <!-- In-process Blob URL iframe previewer -->
+                            <div class="preview-empty-state">
+                                <i class="fa-solid fa-file-pdf" style="font-size: 4rem; opacity: 0.3;"></i>
+                                <p>Select an uploaded PDF from the queue list on the left to preview it side-by-side.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: AI LEGAL PRECEDENTS CHAT -->
+            <div id="tab-chat" class="tab-viewport">
+                <div class="panel chat-console-panel">
+                    <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h3><i class="fa-solid fa-brain-circuit text-glow"></i> AI Precedent Chat Assistant</h3>
+                            <p class="panel-subtitle">Runs semantic legal searches over your centralized Qdrant vector database.</p>
+                        </div>
+                        <div class="chat-filters">
+                            <select id="chat-case-filter" class="btn btn-secondary btn-small">
+                                <option value="all">Search All Cases</option>
+                                <option value="injury">Injury Cases Only</option>
+                                <option value="death">Death Cases Only</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="chat-workspace">
+                        <!-- Chat Log -->
+                        <div id="chat-messages" class="chat-messages">
+                            <div class="chat-bubble bot">
+                                <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
+                                <div class="chat-text">
+                                    Hello! I am your **AI Legal Assistant** coupled with your centralized **Qdrant Vector Database**.
+                                    <br><br>
+                                    Once you index legal files in the **PDF Library**, you can ask me semantic questions such as:
+                                    <ul>
+                                        <li>*"Find cases where an unmarried deceased of age 32 had 4 dependents"*</li>
+                                        <li>*"Show me injury judgments with permanent disability above 40%"*</li>
+                                        <li>*"What compensation was awarded in cases involving salary of Rs 25,000?"*</li>
+                                    </ul>
+                                    I will automatically locate matching sentences in Qdrant, retrieve the judgments, and formulate legal summaries!
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Search Input bar -->
+                        <div class="chat-input-bar">
+                            <input type="text" id="chat-input" placeholder="Ask AI Search (e.g. Find cases with deceased aged 40 and 4 dependents)..." autocomplete="off">
+                            <button type="button" id="chat-send-btn" class="btn btn-primary"><i class="fa-solid fa-paper-plane"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ==========================================
+             MODAL RESULTS SUMMARY
+             ========================================== -->
+        <div id="results-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2><i class="fa-solid fa-money-check-dollar-pen text-glow"></i> Compensation Award Summary</h2>
+                    <button type="button" id="close-modal-btn" class="close-btn">&times;</button>
+                </div>
+                
+                <div class="modal-body" id="modal-body-content">
+                    <!-- Dynamically injected math dashboard -->
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" id="print-btn" class="btn btn-secondary"><i class="fa-solid fa-print"></i> Print Settlement Sheet</button>
+                    <button type="button" id="dismiss-modal-btn" class="btn btn-primary">Close</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Core App Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
