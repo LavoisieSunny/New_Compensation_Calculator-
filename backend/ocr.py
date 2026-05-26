@@ -201,7 +201,7 @@ def preprocess_image_safe(pil_img, resize_factor=None):
         blurred = cv2.GaussianBlur(enhanced, (0, 0), 2.0)
         sharpened = cv2.addWeighted(enhanced, 1.2, blurred, -0.2, 0)
 
-        return Image.fromarray(sharpened)
+        return Image.fromarray(sharpened).convert("RGB")
     except Exception as e:
         logger.warning(f"Safe preprocessing failed, returning original image: {str(e)}")
         return pil_img
