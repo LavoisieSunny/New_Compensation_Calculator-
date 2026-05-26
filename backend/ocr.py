@@ -311,6 +311,14 @@ def get_mock_legal_text(file_path: str) -> list:
             "The claimant is awarded compensation of Rs. 385000 total."
         ]
 
+def is_extracted_text_sparse(text_lines: list) -> bool:
+    """
+    Checks if the extracted text lines are sparse, excluding page markers.
+    Returns True if the actual text lines found is less than 15.
+    """
+    actual_text_lines = [line for line in text_lines if not line.strip().startswith("--- PAGE")]
+    return len(actual_text_lines) < 15
+
 # ======================================================
 # BACKGROUND BATCH INDEXING PIPELINE
 # ======================================================
@@ -330,7 +338,7 @@ def run_background_pdf_indexing(file_id: str, temp_path: str, filename: str):
         fallback_source = "PaddleOCR"
         
         # 2. If digital text fails (scanned PDF), run page image pypdfium2 + PaddleOCR
-        if len(text_lines) < 20:
+        if is_extracted_text_sparse(text_lines):
             logger.info(f"Selectable text is sparse. Running page-bitmap PaddleOCR for scanned PDF '{filename}'")
             
             def report_progress(prog_percent):
@@ -340,8 +348,8 @@ def run_background_pdf_indexing(file_id: str, temp_path: str, filename: str):
             fallback_source = "PaddleOCR"
             
         # Fallback Layer 1: Alternate OCR/layout extraction
-        if len(text_lines) < 20:
-            logger.info(f"PaddleOCR results sparse ({len(text_lines)} lines). Trying Alternate OCR Recovery...")
+        if is_extracted_text_sparse(text_lines):
+            logger.info(f"PaddleOCR results sparse. Trying Alternate OCR Recovery...")
             alt_lines = extract_alternate_pdf_text(temp_path)
             if len(alt_lines) > len(text_lines):
                 text_lines = alt_lines
@@ -433,13 +441,13 @@ async def process_single_file(file: UploadFile = File(...)):
             # 1. Try selectable digital text first
             text_lines = extract_digital_pdf_text(temp_path)
             # 2. Sparse text fallback -> Scanned PDF scan via PaddleOCR
-            if len(text_lines) < 20:
-                logger.info(f"Selectable PDF text is sparse ({len(text_lines)} lines). Running scanned PDF OCR extraction...")
+            if is_extracted_text_sparse(text_lines):
+                logger.info(f"Selectable PDF text is sparse. Running scanned PDF OCR extraction...")
                 text_lines = perform_ocr_on_scanned_pdf(temp_path)
                 fallback_source = "PaddleOCR"
             # 3. Fallback Layer 1: Alternate OCR Recovery
-            if len(text_lines) < 20:
-                logger.info(f"PaddleOCR output is sparse ({len(text_lines)} lines). Running Alternate OCR Recovery...")
+            if is_extracted_text_sparse(text_lines):
+                logger.info(f"PaddleOCR output is sparse. Running Alternate OCR Recovery...")
                 alt_lines = extract_alternate_pdf_text(temp_path)
                 if len(alt_lines) > len(text_lines):
                     text_lines = alt_lines
