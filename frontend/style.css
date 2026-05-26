@@ -478,6 +478,37 @@ input:focus, select:focus {
     border-radius: var(--radius-sm);
 }
 
+/* Fallback Layer 7 — Human Verification UI warnings */
+.low-confidence-input input, 
+.low-confidence-input select,
+input.low-confidence-input, 
+select.low-confidence-input {
+    border-color: #f59e0b !important;
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.3) !important;
+}
+
+.verification-warning {
+    color: #f59e0b;
+    font-size: 0.72rem;
+    font-weight: 500;
+    margin-top: 5px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    animation: slideDownFade 0.25s ease-out;
+}
+
+@keyframes slideDownFade {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 .section-divider {
     grid-column: 1 / -1;
     display: flex;
@@ -1507,3 +1538,92 @@ input:focus, select:focus {
     color: var(--color-primary);
     text-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
 }
+
+/* ==========================================================================
+   LEGAL AI SUMMARY BRIEFING STYLE RULES
+   ========================================================================== */
+#legal-ai-summary-card {
+    border: 1px solid rgba(168, 85, 247, 0.2);
+    background: linear-gradient(135deg, rgba(20, 30, 58, 0.8) 0%, rgba(11, 18, 36, 0.9) 100%);
+    box-shadow: 0 8px 32px rgba(168, 85, 247, 0.08), var(--shadow-premium);
+    position: relative;
+    overflow: hidden;
+    transition: all var(--transition-slow);
+}
+
+#legal-ai-summary-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
+    opacity: 0.8;
+}
+
+#legal-ai-summary-card h3 i.text-purple {
+    color: var(--color-accent) !important;
+    text-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
+}
+
+.legal-summary-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: rgba(15, 23, 42, 0.35);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    transition: transform var(--transition-fast);
+}
+
+.legal-summary-section:hover {
+    transform: translateY(-2px);
+    border-color: rgba(168, 85, 247, 0.25);
+    background: rgba(15, 23, 42, 0.50);
+}
+
+.legal-summary-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.legal-summary-title i {
+    font-size: 0.9rem;
+}
+
+.legal-summary-title.facts i { color: var(--color-primary); }
+.legal-summary-title.metrics i { color: var(--color-success); }
+.legal-summary-title.direction i { color: var(--color-warning); }
+.legal-summary-title.anomalies i { color: var(--color-danger); }
+
+.legal-summary-text {
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--text-primary);
+}
+
+.legal-summary-anomaly-item {
+    font-size: 0.82rem;
+    color: var(--color-danger);
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px dashed rgba(239, 68, 68, 0.2);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-top: 4px;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.legal-summary-anomaly-item i {
+    margin-top: 2px;
+}
+

@@ -1,0 +1,29 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Python caching
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE & Editor configs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Testing artifacts
+test_scan.png
+
+# Qodo testing configs
+.qodo/
+
+# Local databases
+qdrant_db/
+**/qdrant_db/

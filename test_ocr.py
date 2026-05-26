@@ -88,7 +88,8 @@ def test_ocr_and_parsing():
         print("\n--- HEURISTIC PARSING RESULTS ---")
         suggestions = parse_extracted_text(extracted_lines)
         for key, val in suggestions.items():
-            print(f"{key:<20}: {val}")
+            val_str = str(val).replace('\u20b9', 'Rs.')
+            print(f"{key:<20}: {val_str}")
             
     except ImportError:
         print("\n[ERROR] PaddleOCR is not installed in the current environment!")

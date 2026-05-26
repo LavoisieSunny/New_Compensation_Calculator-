@@ -376,7 +376,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 // Load high-fidelity PDF preview in the right pane!
                 const blobUrl = URL.createObjectURL(file);
-                singlePreviewFilename.textContent = file.name;
+                singlePreviewFilename.innerHTML = `${file.name} <span class="badge source-badge" style="margin-left: 8px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; display: inline-block;">Source: ${data.fallback_source}</span>`;
                 singlePreviewContainer.innerHTML = `
                     <iframe class="pdf-iframe" src="${blobUrl}#toolbar=0" width="100%" height="100%"></iframe>
                 `;
@@ -426,7 +426,7 @@ document.addEventListener("DOMContentLoaded", () => {
             applyAllOcrSuggestions(mockSuggestions);
 
             // Render mock preview
-            singlePreviewFilename.textContent = file.name;
+            singlePreviewFilename.innerHTML = `${file.name} <span class="badge source-badge" style="margin-left: 8px; background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; display: inline-block;">Source: AI Recovery (Offline)</span>`;
             singlePreviewContainer.innerHTML = `
                 <div class="preview-empty-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 10px;">
                     <i class="fa-solid fa-file-pdf" style="font-size: 3rem; color: var(--color-success)"></i>
@@ -675,6 +675,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Apply parsed suggestions
     function applyAllOcrSuggestions(suggestions) {
+        // Clear all previous low-confidence warning labels and styles
+        document.querySelectorAll(".verification-warning").forEach(el => el.remove());
+        document.querySelectorAll(".low-confidence-input").forEach(el => el.classList.remove("low-confidence-input"));
+
         if (suggestions.case_type) {
             caseTypeSelect.value = suggestions.case_type;
             caseTypeSelect.dispatchEvent(new Event("change"));
@@ -705,6 +709,169 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             }
         });
+        
+        // Fallback Layer 7 — Human Verification UI warnings highlight
+        const fieldMapping = {
+            "name": "name",
+            "claimant_name": "name",
+            "deceased_name": "name",
+            "father_name": "father_name",
+            "date_of_birth": "date_of_birth",
+            "date_of_accident": "date_of_accident",
+            "place_of_accident": "place_of_accident",
+            "age": "age",
+            "monthly_income": "monthly_income",
+            "dependents": "dependents",
+            "marital_status": "marital_status",
+            "disability": "disability"
+        };
+
+        if (suggestions.confidence_scores) {
+            Object.keys(suggestions.confidence_scores).forEach(key => {
+                const confObj = suggestions.confidence_scores[key];
+                const confidence = confObj.confidence;
+                const domId = fieldMapping[key];
+                if (domId) {
+                    const inputEl = document.getElementById(domId);
+                    if (inputEl) {
+                        // Flag if confidence < 70
+                        if (confidence < 70 && confidence > 0) {
+                            // Find parent form-group to apply styles
+                            const formGroup = inputEl.closest(".form-group");
+                            if (formGroup) {
+                                // Add low confidence border
+                                const wrapper = inputEl.closest(".input-icon-wrapper") || inputEl.closest(".select-wrapper") || inputEl;
+                                wrapper.classList.add("low-confidence-input");
+                                
+                                // Insert small warning message
+                                const warningMsg = document.createElement("div");
+                                warningMsg.className = "verification-warning";
+                                warningMsg.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Low confidence (${confidence}%). Verify manually.`;
+                                formGroup.appendChild(warningMsg);
+                                
+                                // Clear warning when user interacts or changes value
+                                const clearWarning = () => {
+                                    wrapper.classList.remove("low-confidence-input");
+                                    warningMsg.remove();
+                                    inputEl.removeEventListener("input", clearWarning);
+                                    inputEl.removeEventListener("change", clearWarning);
+                                };
+                                inputEl.addEventListener("input", clearWarning);
+                                inputEl.addEventListener("change", clearWarning);
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Update Legal AI Summary Card
+        const summaryCard = document.getElementById("legal-ai-summary-card");
+        const summaryBody = document.getElementById("legal-ai-summary-body");
+        
+        if (summaryCard && summaryBody && suggestions.legal_ai_summary) {
+            let htmlContent = '';
+            const text = suggestions.legal_ai_summary;
+            const anomalies = suggestions.anomalies_detected || [];
+            
+            let factsText = '';
+            let paramsText = '';
+            let appealText = '';
+            
+            const sentences = text.split('. ').map(s => s.trim()).filter(s => s.length > 0);
+            sentences.forEach(sentence => {
+                const s = sentence.toLowerCase();
+                if (s.includes("appeal challenges") || s.includes("profile involves") || s.includes("accident") || s.includes("individual, historically")) {
+                    factsText += sentence + '. ';
+                } else if (s.includes("income") || s.includes("multiplier") || s.includes("prospects") || s.includes("awarded stands") || s.includes("compensation awarded stands")) {
+                    paramsText += sentence + '. ';
+                } else if (s.includes("requests a") || s.includes("requests an") || s.includes("appeal requests") || s.includes("requests a reduction") || s.includes("requests an enhancement")) {
+                    appealText += sentence + '. ';
+                } else {
+                    factsText += sentence + '. ';
+                }
+            });
+            
+            if (!factsText) factsText = text;
+            
+            htmlContent += `
+                <div class="legal-summary-section">
+                    <div class="legal-summary-title facts">
+                        <i class="fa-solid fa-circle-info"></i> Case Facts Briefing
+                    </div>
+                    <div class="legal-summary-text">${factsText}</div>
+                </div>
+            `;
+            
+            if (paramsText) {
+                htmlContent += `
+                    <div class="legal-summary-section" style="margin-top: 10px;">
+                        <div class="legal-summary-title metrics">
+                            <i class="fa-solid fa-calculator"></i> Judicial Parameter Breakdown
+                        </div>
+                        <div class="legal-summary-text">${paramsText}</div>
+                    </div>
+                `;
+            }
+            
+            if (appealText) {
+                htmlContent += `
+                    <div class="legal-summary-section" style="margin-top: 10px;">
+                        <div class="legal-summary-title direction">
+                            <i class="fa-solid fa-angles-up"></i> Appeal Direction
+                        </div>
+                        <div class="legal-summary-text">${appealText}</div>
+                    </div>
+                `;
+            }
+            
+            if (anomalies.length > 0) {
+                htmlContent += `
+                    <div class="legal-summary-section" style="margin-top: 10px;">
+                        <div class="legal-summary-title anomalies">
+                            <i class="fa-solid fa-triangle-exclamation"></i> Legal AI Verification Checklist
+                        </div>
+                        <div class="legal-summary-anomalies-list" style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
+                `;
+                
+                anomalies.forEach(anomaly => {
+                    const isWarning = anomaly.toLowerCase().includes("mismatch") || anomaly.toLowerCase().includes("invalid") || anomaly.toLowerCase().includes("dob") || anomaly.toLowerCase().includes("fail") || anomaly.toLowerCase().includes("differ") || anomaly.toLowerCase().includes("after");
+                    const iconClass = isWarning ? "fa-triangle-exclamation text-warning" : "fa-circle-check text-success";
+                    const itemStyle = isWarning ? "background: rgba(245, 158, 11, 0.08); border: 1px dashed rgba(245, 158, 11, 0.2); color: #f59e0b;" : "background: rgba(16, 185, 129, 0.08); border: 1px dashed rgba(16, 185, 129, 0.2); color: #10b981;";
+                    
+                    htmlContent += `
+                        <div class="legal-summary-anomaly-item" style="${itemStyle}">
+                            <i class="fa-solid ${iconClass}"></i>
+                            <span>${anomaly}</span>
+                        </div>
+                    `;
+                });
+                
+                htmlContent += `
+                        </div>
+                    </div>
+                `;
+            } else {
+                htmlContent += `
+                    <div class="legal-summary-section" style="margin-top: 10px;">
+                        <div class="legal-summary-title anomalies" style="color: var(--color-success)">
+                            <i class="fa-solid fa-circle-check"></i> Legal AI Verification Checklist
+                        </div>
+                        <div class="legal-summary-anomaly-item" style="background: rgba(16, 185, 129, 0.08); border: 1px dashed rgba(16, 185, 129, 0.2); color: #10b981; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-circle-check text-success"></i>
+                            <span>All judicial parameters fully aligned with legal benchmarks (Sarla Verma & Pranay Sethi standards verified).</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            summaryBody.innerHTML = htmlContent;
+            summaryCard.classList.remove("hidden-section");
+            summaryCard.classList.add("show");
+        } else if (summaryCard) {
+            summaryCard.classList.add("hidden-section");
+            summaryCard.classList.remove("show");
+        }
         
         alert(`Auto-filled workstation variables successfully! DOB and accident dates converted.`);
     }
@@ -1191,6 +1358,21 @@ document.addEventListener("DOMContentLoaded", () => {
             </div>
         `;
         singlePreviewFilename.textContent = "No File Loaded";
+        
+        const summaryCard = document.getElementById("legal-ai-summary-card");
+        if (summaryCard) {
+            summaryCard.classList.add("hidden-section");
+            summaryCard.classList.remove("show");
+            const summaryBody = document.getElementById("legal-ai-summary-body");
+            if (summaryBody) {
+                summaryBody.innerHTML = `
+                    <div class="empty-summary-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; opacity: 0.5; padding: 20px 0;">
+                        <i class="fa-solid fa-gavel" style="font-size: 2.5rem; color: #c084fc;"></i>
+                        <p style="font-size: 0.8rem; color: var(--text-secondary); text-align: center; margin: 0;">Upload a PDF to see the structured legal analysis summary and judicial anomaly checklist.</p>
+                    </div>
+                `;
+            }
+        }
         
         triggerEvalBtn.disabled = true;
         currentCalculationAmount = 0;

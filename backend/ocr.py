@@ -66,6 +66,107 @@ def extract_digital_pdf_text(file_path: str) -> list:
         logger.warning(f"Failed to extract digital text from {file_path}: {str(e)}")
         return []
 
+def extract_alternate_pdf_text(file_path: str) -> list:
+    """
+    Fallback Layer 1: Extract PDF text using PyMuPDF and pdfplumber
+    if PaddleOCR or standard digital extraction returns sparse results.
+    """
+    text_lines = []
+    
+    # Try PyMuPDF (fitz)
+    try:
+        import fitz
+        logger.info("Alternate OCR/Extraction: Running PyMuPDF (fitz)...")
+        doc = fitz.open(file_path)
+        pymupdf_lines = []
+        for i, page in enumerate(doc):
+            pymupdf_lines.append(f"--- PAGE {i+1} ---")
+            text = page.get_text()
+            if text:
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if line:
+                        pymupdf_lines.append(line)
+        if len(pymupdf_lines) > 20:
+            logger.info(f"PyMuPDF extraction successful: found {len(pymupdf_lines)} lines.")
+            text_lines = pymupdf_lines
+    except Exception as e:
+        logger.warning(f"Alternate OCR/Extraction PyMuPDF failed: {str(e)}")
+
+    # Try pdfplumber if PyMuPDF extracted very little
+    if len(text_lines) < 25:
+        try:
+            import pdfplumber
+            logger.info("Alternate OCR/Extraction: Running pdfplumber...")
+            with pdfplumber.open(file_path) as pdf:
+                plumber_lines = []
+                for i, page in enumerate(pdf.pages):
+                    plumber_lines.append(f"--- PAGE {i+1} ---")
+                    text = page.extract_text()
+                    if text:
+                        for line in text.split("\n"):
+                            line = line.strip()
+                            if line:
+                                plumber_lines.append(line)
+                if len(plumber_lines) > len(text_lines):
+                    logger.info(f"pdfplumber extraction successful: found {len(plumber_lines)} lines.")
+                    text_lines = plumber_lines
+        except Exception as e:
+            logger.warning(f"Alternate OCR/Extraction pdfplumber failed: {str(e)}")
+            
+    return text_lines
+
+def preprocess_image_for_ocr(pil_img) -> list:
+    """
+    Step 1: Preprocessing Engine using OpenCV & Pillow.
+    Performs grayscale conversion, bilateral noise filtering, 
+    adaptive thresholding, and deskew rotation alignment.
+    """
+    try:
+        import cv2
+        from PIL import Image
+        
+        # 1. Convert PIL Image to OpenCV BGR numpy array
+        open_cv_image = np.array(pil_img)
+        # Convert BGR to Gray
+        if len(open_cv_image.shape) == 3:
+            gray = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = open_cv_image
+            
+        # 2. Bilateral noise filtering (removes noise while keeping text edges sharp!)
+        denoised = cv2.bilateralFilter(gray, 9, 75, 75)
+        
+        # 3. Dynamic Adaptive OTSU Thresholding to improve contrast
+        _, thresh = cv2.threshold(denoised, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        
+        # 4. Deskew / Orientation Alignment Correction
+        # Find all text contours to calculate dominant angle
+        coords = np.column_stack(np.where(thresh < 255))
+        if len(coords) > 100:
+            # Get minAreaRect enclosing all text coordinates
+            rect = cv2.minAreaRect(coords)
+            angle = rect[-1]
+            # cv2.minAreaRect returns angle in [-90, 0)
+            if angle < -45:
+                angle = -(90 + angle)
+            else:
+                angle = -angle
+                
+            # Only rotate if the skew is noticeable (between 0.5 and 15 degrees)
+            if 0.5 < abs(angle) < 15.0:
+                logger.info(f"Skew detected: {angle:.2f} degrees. Rotating to align text...")
+                (h, w) = thresh.shape[:2]
+                center = (w // 2, h // 2)
+                M = cv2.getRotationMatrix2D(center, angle, 1.0)
+                thresh = cv2.warpAffine(thresh, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=255)
+        
+        # 5. Convert OpenCV image back to PIL
+        return Image.fromarray(thresh)
+    except Exception as e:
+        logger.warning(f"Image preprocessing failed, continuing with raw image: {str(e)}")
+        return pil_img
+
 def perform_ocr_on_scanned_pdf(file_path: str, progress_callback=None) -> list:
     """
     Renders pages of a scanned PDF using pypdfium2, runs PaddleOCR 
@@ -99,6 +200,9 @@ def perform_ocr_on_scanned_pdf(file_path: str, progress_callback=None) -> list:
             page = doc[page_idx]
             bitmap = page.render(scale=2)
             pil_img = bitmap.to_pil()
+            
+            # Step 1: Preprocessing Engine
+            pil_img = preprocess_image_for_ocr(pil_img)
             
             # Convert PIL to numpy array for PaddleOCR input
             img_array = np.array(pil_img)
@@ -141,7 +245,13 @@ def perform_ocr_on_image(file_path: str) -> list:
         return get_mock_legal_text(file_path)
         
     try:
-        result = ocr_engine.ocr(file_path)
+        from PIL import Image
+        pil_img = Image.open(file_path)
+        # Step 1: Preprocessing Engine
+        pil_img = preprocess_image_for_ocr(pil_img)
+        img_array = np.array(pil_img)
+        
+        result = ocr_engine.ocr(img_array)
         text_lines = []
         if result and len(result) > 0:
             for item in result:
@@ -217,6 +327,7 @@ def run_background_pdf_indexing(file_id: str, temp_path: str, filename: str):
         # 1. Attempt digital selectable text extraction
         logger.info(f"Background task: Extracting selectable text from '{filename}'")
         text_lines = extract_digital_pdf_text(temp_path)
+        fallback_source = "PaddleOCR"
         
         # 2. If digital text fails (scanned PDF), run page image pypdfium2 + PaddleOCR
         if len(text_lines) < 20:
@@ -226,12 +337,26 @@ def run_background_pdf_indexing(file_id: str, temp_path: str, filename: str):
                 BATCH_QUEUE[file_id]["progress"] = prog_percent
                 
             text_lines = perform_ocr_on_scanned_pdf(temp_path, progress_callback=report_progress)
+            fallback_source = "PaddleOCR"
             
+        # Fallback Layer 1: Alternate OCR/layout extraction
+        if len(text_lines) < 20:
+            logger.info(f"PaddleOCR results sparse ({len(text_lines)} lines). Trying Alternate OCR Recovery...")
+            alt_lines = extract_alternate_pdf_text(temp_path)
+            if len(alt_lines) > len(text_lines):
+                text_lines = alt_lines
+                fallback_source = "Alternate OCR"
+                
         BATCH_QUEUE[file_id]["progress"] = 90
         
         # 3. Parse suggestions using legal heuristics
         logger.info(f"Parsing extracted text for suggestions for '{filename}'")
         suggestions = parse_extracted_text(text_lines)
+        
+        if suggestions.get("ai_recovery_triggered", False):
+            fallback_source = "AI Recovery"
+            
+        suggestions["fallback_source_used"] = fallback_source
         
         # Look for explicit court award amount in text to add to payload
         # Standard motor claims judgments usually end with an award amount!
@@ -303,6 +428,7 @@ async def process_single_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Failed to save upload: {str(e)}")
 
     try:
+        fallback_source = "PaddleOCR"
         if file_ext == ".pdf":
             # 1. Try selectable digital text first
             text_lines = extract_digital_pdf_text(temp_path)
@@ -310,10 +436,24 @@ async def process_single_file(file: UploadFile = File(...)):
             if len(text_lines) < 20:
                 logger.info(f"Selectable PDF text is sparse ({len(text_lines)} lines). Running scanned PDF OCR extraction...")
                 text_lines = perform_ocr_on_scanned_pdf(temp_path)
+                fallback_source = "PaddleOCR"
+            # 3. Fallback Layer 1: Alternate OCR Recovery
+            if len(text_lines) < 20:
+                logger.info(f"PaddleOCR output is sparse ({len(text_lines)} lines). Running Alternate OCR Recovery...")
+                alt_lines = extract_alternate_pdf_text(temp_path)
+                if len(alt_lines) > len(text_lines):
+                    text_lines = alt_lines
+                    fallback_source = "Alternate OCR"
         else:
             text_lines = perform_ocr_on_image(temp_path)
             
         suggestions = parse_extracted_text(text_lines)
+        
+        # If the heuristics required AI Recovery fallback, override the source
+        if suggestions.get("ai_recovery_triggered", False):
+            fallback_source = "AI Recovery"
+            
+        suggestions["fallback_source_used"] = fallback_source
         
         # Look for explicit court award amount in text to add to payload
         award_amount = 0.0
@@ -336,6 +476,7 @@ async def process_single_file(file: UploadFile = File(...)):
             "success": True,
             "filename": file.filename,
             "ocr_status": "loaded",
+            "fallback_source": fallback_source,
             "suggestions": suggestions,
             "raw_text": text_lines
         }
