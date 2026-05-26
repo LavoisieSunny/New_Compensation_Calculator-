@@ -411,39 +411,45 @@ def contextual_extract(patterns, sections, priority_list, type_cast=str, default
     return default_val, fallback_confidence, "raw_ocr"
 
 
-def simulate_fallback_ai_recovery(petitioner_details, prayer_section, compensation_paragraphs, award_section, case_type):
+def real_text_recovery(petitioner_details, prayer_section, compensation_paragraphs, award_section, case_type):
     """
-    Layer 4: Fallback AI Recovery.
-    Simulates a legal AI parsing over the isolated semantic sections.
+    Layer 4: Real-Text Recovery.
+    Re-parses isolated semantic sections using targeted regex patterns
+    to recover fields that the main contextual extractor missed.
+
+    LEGAL SAFETY GUARANTEE:
+    This function ONLY operates on actual OCR-extracted text passed in as arguments.
+    It NEVER fabricates, hallucinates, or invents legal facts.
+    If no match is found in the text, fields are left blank (None / not added).
     """
-    logger.info("Executing Fallback AI Recovery on isolated legal sections...")
+    logger.info("Executing Real-Text Recovery on isolated legal sections (real OCR text only)...")
     recovered = {}
-    
-    # 1. Recover Name
+
+    # 1. Recover Name — must be a proper-case 2-3 word name from the petitioner block
     name_m = re.search(r'\b(?:injured|deceased|claimant|petitioner|late shri)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})', petitioner_details)
     if name_m:
         recovered["name"] = name_m.group(1).strip()
-        
-    # 2. Recover Age
+
+    # 2. Recover Age — explicit age/aged keyword match only
     age_m = re.search(r'\b(?:age|aged|approximately)\s*(\d{1,2})\b', petitioner_details + " " + compensation_paragraphs)
     if age_m:
         recovered["age"] = int(age_m.group(1))
-        
-    # 3. Recover Income
+
+    # 3. Recover Income — requires explicit income/salary keyword in the compensation block
     inc_m = re.search(r'\b(?:monthly\s+income|salary|earning|coolie|wages?)\b.*?(\d{4,6})\b', compensation_paragraphs)
     if inc_m:
         recovered["monthly_income"] = float(inc_m.group(1))
-        
-    # 4. Recover Dependents
+
+    # 4. Recover Dependents — explicit count near the word 'dependents' or 'family members'
     dep_m = re.search(r'\b(\d{1,2})\s*(?:dependents?|family\s+members)\b', petitioner_details)
     if dep_m:
         recovered["dependents"] = int(dep_m.group(1))
-        
-    # 5. Recover Award Amount
+
+    # 5. Recover Award Amount — only from explicit award/compensation keywords
     aw_m = re.search(r'\b(?:awarded|compensation\s+of\s+rs\.?|tribunal\s+awards)\s*([\d,\.]+)\b', award_section)
     if aw_m:
         recovered["award_amount"] = parse_indian_rupee_value(aw_m.group(1))
-        
+
     return recovered
 
 
@@ -979,7 +985,8 @@ def parse_extracted_text(text_lines):
             reconstructed_compensation = table_sum
 
     # ======================================================
-    # LAYER 4 — FALLBACK AI RECOVERY (Semantic context-aware)
+    # LAYER 4 — REAL-TEXT RECOVERY (Semantic context-aware)
+    # Re-parses real OCR sections only. Never fabricates data.
     # ======================================================
     ai_recovery_triggered = False
     
@@ -988,8 +995,8 @@ def parse_extracted_text(text_lines):
     if fields_missing or reconstruction_triggered:
         ai_recovery_triggered = True
         
-        # Execute Fallback AI Recovery purely on isolated semantic blocks
-        recovered = simulate_fallback_ai_recovery(
+        # Execute Real-Text Recovery on isolated semantic OCR blocks (real text only)
+        recovered = real_text_recovery(
             section_blocks["petitioner_details"],
             section_blocks["prayer_section"],
             section_blocks["compensation_paragraphs"],
