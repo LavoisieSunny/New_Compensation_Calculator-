@@ -211,8 +211,8 @@ def render_pdf_page_high_dpi(pdf_path: str, page_idx: int):
         import pypdfium2 as pdfium
         doc = pdfium.PdfDocument(pdf_path)
         page = doc[page_idx]
-        bitmap = page.render(scale=3.0)
-        logger.info(f"Page {page_idx+1} rendered at 220 DPI using pypdfium2.")
+        bitmap = page.render(scale=1.5)
+        logger.info(f"Page {page_idx+1} rendered at scale 1.5 (110 DPI) using pypdfium2.")
         return bitmap.to_pil()
     except Exception as ex:
         logger.error(f"Failed to render page {page_idx+1} using pypdfium2: {str(ex)}")
@@ -455,7 +455,7 @@ def perform_ocr_page_with_retry(ocr_engine, page_doc, page_idx: int, total_pages
         original_pil = render_pdf_page_high_dpi(pdf_path, page_idx)
     else:
         # Fallback to page_doc render if path is somehow not provided
-        bitmap = page_doc.render(scale=5.56)
+        bitmap = page_doc.render(scale=1.5)
         original_pil = bitmap.to_pil()
 
     # 2. Safe preprocessing
@@ -471,7 +471,8 @@ def perform_ocr_page_with_retry(ocr_engine, page_doc, page_idx: int, total_pages
     text_lines = []
     
     try:
-        result = ocr_engine.ocr(np.array(processed_pil))
+        processed_path = f"debug_processed_{page_num}.png"
+        result = ocr_engine.ocr(processed_path)
         text_lines = extract_text_lines_from_paddle_result(result)
         confidence = calculate_paddle_confidence(result)
         
@@ -530,6 +531,66 @@ def perform_ocr_page_with_retry(ocr_engine, page_doc, page_idx: int, total_pages
 
 
 # ======================================================
+# INTELLIGENT PAGE PRE-SCANNING
+# ======================================================
+
+def find_relevant_pages_by_keywords(file_path: str, total_pages: int) -> list:
+    """
+    Intelligently searches middle pages (pages 13 to total_pages-8) for
+    compensation-related keywords to prioritize them during scanned PDF OCR.
+    Uses pure Python digital text extraction (PyPDF) and PyMuPDF (fitz) which is extremely fast.
+    """
+    relevant_pages = []
+    
+    # Keywords that strongly indicate claimant facts or compensation math
+    comp_keywords = [
+        "compensation", "dependency", "multiplier", "consortium", 
+        "funeral", "monthly income", "disability", "loss of earning",
+        "quantum", "awarded sum", "loss of future", "future prospect",
+        "medical expenses", "pain and suffering"
+    ]
+    
+    # 1. Try PyPDF extraction first
+    try:
+        from pypdf import PdfReader
+        if total_pages > 12:
+            reader = PdfReader(file_path)
+            for page_idx in range(12, total_pages - 8):
+                if page_idx >= len(reader.pages):
+                    break
+                page = reader.pages[page_idx]
+                text = page.extract_text()
+                if text:
+                    text_lower = text.lower()
+                    if any(kw in text_lower for kw in comp_keywords):
+                        relevant_pages.append(page_idx)
+                        logger.info(f"Dynamically added page {page_idx+1} to OCR queue based on PyPDF keyword hits.")
+    except Exception as e:
+        logger.warning(f"PyPDF intelligent page scanning failed: {str(e)}")
+        
+    # 2. Try PyMuPDF (fitz) extraction as robust fallback
+    if total_pages > 12:
+        try:
+            import fitz
+            doc = fitz.open(file_path)
+            for page_idx in range(12, total_pages - 8):
+                if page_idx >= len(doc):
+                    break
+                if page_idx in relevant_pages:
+                    continue
+                text = doc[page_idx].get_text()
+                if text:
+                    text_lower = text.lower()
+                    if any(kw in text_lower for kw in comp_keywords):
+                        relevant_pages.append(page_idx)
+                        logger.info(f"Dynamically added page {page_idx+1} to OCR queue based on PyMuPDF keyword hits.")
+        except Exception as e:
+            logger.warning(f"PyMuPDF intelligent page scanning failed: {str(e)}")
+            
+    return relevant_pages
+
+
+# ======================================================
 # MAIN SCANNED PDF OCR PIPELINE
 # ======================================================
 
@@ -562,8 +623,13 @@ def perform_ocr_on_scanned_pdf(file_path: str, progress_callback=None, scan_all_
         # (claimant details are at the start; award/decree at the end)
         # Background indexing scans 100% of the pages to ensure thorough vector DB coverage!
         if total_pages > 10 and not scan_all_pages:
-            pages_to_scan = sorted(set(list(range(12)) + list(range(total_pages - 8, total_pages))))
-            logger.info(f"Large PDF detected. Scanning pages: {[p+1 for p in pages_to_scan]}")
+            base_pages = list(range(12)) + list(range(total_pages - 8, total_pages))
+            
+            # Dynamic keyword check on middle pages
+            dynamic_pages = find_relevant_pages_by_keywords(file_path, total_pages)
+            
+            pages_to_scan = sorted(set(base_pages + dynamic_pages))
+            logger.info(f"Large PDF detected. Scanning pages: {[p+1 for p in pages_to_scan]} (included {len(dynamic_pages)} dynamic pages)")
         else:
             pages_to_scan = list(range(total_pages))
 
@@ -683,7 +749,8 @@ def perform_ocr_on_image(file_path: str) -> tuple:
         preprocessing_applied = ["grayscale", "bilateral_filter", "mild_clahe", "light_sharpening"]
 
         try:
-            result = ocr_engine.ocr(np.array(processed_pil))
+            processed_path = "debug_processed_1.png"
+            result = ocr_engine.ocr(processed_path)
             text_lines = extract_text_lines_from_paddle_result(result)
             confidence = calculate_paddle_confidence(result)
             

@@ -164,16 +164,34 @@ def clean_legal_name(name_str):
     if not name_str:
         return ""
         
-    # Ignore lines that contain non-relevant legal entities
+    # Ignore obvious non-person entities or metadata fields
     IGNORE_KEYWORDS = [
-        "advocate", "counsel", "judge", "justice", "respondent", 
+        "advocate", "counsel", "judge", "justice", 
         "insurance company", "insurance co", "citation", "referred case", 
-        "versus", "v.", "vs.", "respondents", "appellant", "cited case", 
-        "vakalatnama", "scc", "acj"
+        "cited case", "vakalatnama", "scc", "acj"
     ]
     name_lower = name_str.lower()
     if any(kw in name_lower for kw in IGNORE_KEYWORDS):
         return ""
+        
+    # Reject directly contaminated prefix lines to preserve strict backward compatibility with existing unit tests
+    if name_lower.startswith("appellant ") or name_lower.startswith("respondent ") or name_lower.startswith("versus "):
+        return ""
+        
+    # Clean the string by removing legal noise like "versus", "vs.", "appellant", "respondent"
+    for vs_pattern in [r'\bversus\b', r'\bvs\b\.?', r'\bv\b\.?']:
+        if re.search(vs_pattern, name_lower):
+            name_str = re.split(vs_pattern, name_str, flags=re.IGNORECASE)[0].strip()
+            name_lower = name_str.lower()
+            
+    # Remove role suffixes/prefixes safely
+    role_patterns = [
+        r'\bappellants?\b\.?', r'\brespondents?\b\.?', r'\bclaimants?\b\.?', 
+        r'\bpetitioners?\b\.?', r'\bvictims?\b\.?', r'\binjured\b\.?', 
+        r'\bdeceased\b\.?', r'\boriginal petitioner\b\.?', r'\bo\.p\b\.?'
+    ]
+    for role_pat in role_patterns:
+        name_str = re.sub(role_pat, '', name_str, flags=re.IGNORECASE).strip()
 
     # Strip whitespace and common noise characters
     name_str = name_str.strip()
@@ -192,6 +210,11 @@ def clean_legal_name(name_str):
 
     # Normalize spaces
     name_str = re.sub(r'\s+', ' ', name_str).strip()
+    
+    # If the result is one of the legal roles themselves, discard it
+    if name_str.lower() in ["appellant", "respondent", "versus", "vs", "petitioner", "claimant", "deceased", "injured"]:
+        return ""
+        
     return name_str
 
 
@@ -219,13 +242,24 @@ def extract_relationship_entities(text):
             # Strip typical claimant/petitioner label prefixes from the claimant part
             c_part = re.sub(r'^(?:claimant\s+name|petitioner\s+name|name\s+of\s+injured|name\s+of\s+claimant|name\s+of\s+victim|claimant|petitioner|victim|injured|name)\s*[:\-–\s]+', '', c_part, flags=re.IGNORECASE)
             
-            # Apply boundary truncation to the father part specifically to avoid leaking trailing fields
+            # Apply boundary truncation to avoid leaking trailing fields
             stop_labels = [
                 "date of birth", "dob", "d.o.b", "born on", "age", "aged",
                 "occupation", "employed as", "working as", "monthly income", "salary",
                 "income", "disability", "dependents", "address", "resident of", "marital status"
             ]
             
+            # Truncate c_part at stop labels and comma
+            for sl in stop_labels:
+                sl_match = re.search(r'\b' + re.escape(sl) + r'\b', c_part, re.IGNORECASE)
+                if sl_match:
+                    c_part = c_part[:sl_match.start()]
+            
+            c_comma_pos = c_part.find(",")
+            if c_comma_pos != -1:
+                c_part = c_part[:c_comma_pos]
+                
+            # Apply boundary truncation to the father part specifically to avoid leaking trailing fields
             # 1. Truncate at comma
             comma_pos = f_part.find(",")
             if comma_pos != -1:
@@ -648,9 +682,9 @@ def extract_compensation_table_fields(section_content):
     for line in table_lines:
         line_lower = line.lower()
         
-        # Isolate the currency value part at the end of the line (e.g. "Rs. 12,00,000/-") to avoid serial prefix mixup
+        # Isolate the currency value part (e.g. "Rs. 12,00,000/-") to avoid serial prefix mixup
         val = 0.0
-        val_match = re.search(r'(?:rs\.?|inr|rupees)?\s*([\d,\.]+\s*(?:lakhs?|lac|lacs)?(?:\/\-)?)\s*$', line_lower)
+        val_match = re.search(r'(?:rs\.?|inr|rupees)?\s*([\d,]{4,12}(?:\.\d+)?)\s*(?:rs\.?|inr|rupees|\/\-)?', line_lower)
         if val_match:
             val = parse_indian_rupee_value(val_match.group(1))
         
@@ -823,7 +857,7 @@ def real_text_recovery(petitioner_details, prayer_section, compensation_paragrap
     logger.info("Executing Real-Text Recovery on isolated sections...")
     recovered = {}
 
-    name_m = re.search(r'\b(?:injured|deceased|claimant|petitioner|late shri)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})', petitioner_details)
+    name_m = re.search(r'\b(?:injured|deceased|claimant|petitioner|late shri|late smt|shri|smt|mr|mrs|kumari)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})', petitioner_details)
     if name_m:
         recovered["name"] = name_m.group(1).strip()
 
@@ -938,9 +972,19 @@ def parse_extracted_text(text_lines):
 
     # 1. Claimant Name extraction
     claimant_patterns = [
-        r'(?:name\s+of\s+)?(?:injured|claimant|victim)\s*(?:name)?\s*[:\-]\s*(.*)',
-        r'petitioner\s*(?:name)?\s*[:\-]\s*(.*)',
-        r'\bshri\b\s*(.*)'
+        r'^(?:\d+[\.\)\-]\s*)?\b(?:claimant|injured|victim)\b\s*(?:name)?\s*[:\-]\s*(.*)',
+        r'\b(?:name\s+of\s+)(?:claimant|injured|victim)\b\s*[:\-]\s*(.*)',
+        r'^(?:\d+[\.\)\-]\s*)?\bpetitioner\b\s*(?:name)?\s*[:\-]\s*(.*)',
+        r'\b(?:name\s+of\s+)petitioner\b\s*[:\-]\s*(.*)',
+        r'^(?:\d+[\.\)\-]\s*)?\bappellant\b\s*(?:name)?\s*[:\-]\s*(.*)',
+        r'\b(?:name\s+of\s+)appellant\b\s*[:\-]\s*(.*)',
+        r'^(?:\d+[\.\)\-]\s*)?\brespondent\b\s*(?:name)?\s*[:\-]\s*(.*)',
+        r'\b(?:name\s+of\s+)respondent\b\s*[:\-]\s*(.*)',
+        r'\bsmt\b\s*(.*)',
+        r'\bshri\b\s*(.*)',
+        r'\bmr\b\s*(.*)',
+        r'\bmrs\b\s*(.*)',
+        r'\bkumari\b\s*(.*)'
     ]
     claimant_name, conf_claimant_name, sec_claimant_name, page_claimant_name = contextual_extract(
         claimant_patterns, sections, [("claimant_section", 90), ("memo_of_appeal_section", 80)], type_cast=str,
@@ -951,9 +995,10 @@ def parse_extracted_text(text_lines):
 
     # 2. Deceased Name extraction
     dec_patterns = [
-        r'(?:name\s+of\s+)?deceased\s*(?:name)?\s*[:\-]\s*(.*)',
-        r'death\s+of\s+(.*)',
-        r'late\s+(?:shri|smt)?\s*(.*)'
+        r'^(?:\d+[\.\)\-]\s*)?\bdeceased\b\s*(?:name)?\s*[:\-]\s*(.*)',
+        r'\b(?:name\s+of\s+)deceased\b\s*[:\-]\s*(.*)',
+        r'^(?:\d+[\.\)\-]\s*)?\bdeath\s+of\s+(.*)',
+        r'\blate\b\s*(?:shri|smt)?\s*(.*)'
     ]
     deceased_name, conf_deceased_name, sec_deceased_name, page_deceased_name = contextual_extract(
         dec_patterns, sections, [("claimant_section", 90), ("memo_of_appeal_section", 80)], type_cast=str,
@@ -961,6 +1006,26 @@ def parse_extracted_text(text_lines):
     )
     method_deceased_name = "Section-Aware Contextual Regex"
     if deceased_name: deceased_name = deceased_name.title()
+
+    # Deceased Block Extraction (Page 8 - High Court Factual Details)
+    deceased_block_match = re.search(
+        r'\b(?:deceased\s+person|description\s+of\s+deceased)\b.*?\b(?:name)\s*[:\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})',
+        full_text,
+        re.IGNORECASE | re.DOTALL
+    )
+    if deceased_block_match:
+        deceased_name = deceased_block_match.group(1).strip().title()
+        conf_deceased_name = 0.99
+        sec_deceased_name = "compensation_section"
+        page_deceased_name = find_exact_page(deceased_name, 1, len(pages), pages) if pages else 8
+        method_deceased_name = "Deceased Block Extraction"
+        parser_debug["deceased_name"] = {
+            "matched_source_text": deceased_block_match.group(0).strip(),
+            "regex_used": "Deceased Block Extraction (Name)",
+            "stop_token_triggered": "Block Match",
+            "raw_captured": deceased_block_match.group(1),
+            "final_extracted": deceased_name
+        }
 
     # Apply Deceased overrides (Requirement 6)
     if claimant_name and any(kw in claimant_name.lower() for kw in ["late shri", "late smt", "late "]):
@@ -1027,6 +1092,26 @@ def parse_extracted_text(text_lines):
     )
     method_age = "Section-Aware Contextual Regex"
 
+    # Deceased Block Extraction (Age)
+    deceased_age_match = re.search(
+        r'\b(?:deceased\s+person|description\s+of\s+deceased)\b.*?\b(?:age)\s*[:\-]\s*(\d{1,2})\b',
+        full_text,
+        re.IGNORECASE | re.DOTALL
+    )
+    if deceased_age_match:
+        age = int(deceased_age_match.group(1))
+        conf_age = 0.99
+        sec_age = "compensation_section"
+        page_age = find_exact_page(str(age), 1, len(pages), pages) if pages else 8
+        method_age = "Deceased Block Extraction"
+        parser_debug["age"] = {
+            "matched_source_text": deceased_age_match.group(0).strip(),
+            "regex_used": "Deceased Block Extraction (Age)",
+            "stop_token_triggered": "Block Match",
+            "raw_captured": deceased_age_match.group(1),
+            "final_extracted": age
+        }
+
     # 5. Occupation only from claimant/petition section
     occ_patterns = [
         r'occupation\s*[:\-]\s*(.*)',
@@ -1040,6 +1125,26 @@ def parse_extracted_text(text_lines):
     )
     method_occupation = "Section-Aware Contextual Regex"
     if occupation: occupation = occupation.title()
+
+    # Deceased Block Extraction (Occupation)
+    deceased_occ_match = re.search(
+        r'\b(?:deceased\s+person|description\s+of\s+deceased)\b.*?\b(?:occupation)\s*[:\-]\s*([A-Za-z\s]+)\b',
+        full_text,
+        re.IGNORECASE | re.DOTALL
+    )
+    if deceased_occ_match:
+        occupation = deceased_occ_match.group(1).strip().title()
+        conf_occupation = 0.99
+        sec_occupation = "compensation_section"
+        page_occupation = find_exact_page(occupation, 1, len(pages), pages) if pages else 8
+        method_occupation = "Deceased Block Extraction"
+        parser_debug["occupation"] = {
+            "matched_source_text": deceased_occ_match.group(0).strip(),
+            "regex_used": "Deceased Block Extraction (Occupation)",
+            "stop_token_triggered": "Block Match",
+            "raw_captured": deceased_occ_match.group(1),
+            "final_extracted": occupation
+        }
 
     # 6. Place of accident
     place_regexes = [
@@ -1104,7 +1209,8 @@ def parse_extracted_text(text_lines):
     else:
         income_patterns = [
             r'(?:monthly\s+income|salary|earning|notional\s+income|coolie|wages?)\s*(?:is|was|of|@)?\s*(?:rs\.?|inr)?\s*([\d,\.\s]+lakhs?|[\d,\.\s]+lacs?|[\d,\.\s]+)\b',
-            r'\b(?:rs\.?|inr)\s*([\d,\.]+)\s*(?:per\s*month|\/pm|\/-\s*pm|p\.m\.)'
+            r'\b(?:rs\.?|inr)?\s*([\d,\.]+)\s*(?:rs\.?|inr)?\s*(?:per\s*month|\/pm|\/-\s*pm|p\.m\.)',
+            r'per\s*month\b.*?([\d,\.]+)\b'
         ]
         monthly_income, conf_monthly_income, sec_monthly_income, page_monthly_income = contextual_extract(
             income_patterns, sections, [("compensation_section", 95), ("award_copy_section", 90)], default_val="", type_cast=float,
@@ -1687,10 +1793,15 @@ def parse_extracted_text(text_lines):
         summary_blocks.append(f"Validation checks: {'; '.join(anomalies_detected)}")
     legal_ai_summary = " ".join(summary_blocks)
 
+    # Set flat 'name' field for the calculator
+    flat_name = claimant_name
+    if case_type == "death" and deceased_name:
+        flat_name = deceased_name
+
     suggestions = {
         "case_type": case_type,
         "compensation_mode": compensation_mode,
-        "name": claimant_name or deceased_name,
+        "name": flat_name,
         "father_name": father_name,
         "date_of_accident": date_of_accident,
         "date_of_birth": date_of_birth,
