@@ -252,50 +252,88 @@ def determine_name_role(name, text):
     Module-level Claimant vs Non-claimant Role Resolution Engine.
     Uses character-distance proximity between a name and explicit role labels inside an HSL-tailored
     narrow semantic window to robustly assign 'claimant' vs 'non-claimant' vs 'unknown' roles.
+    Supports suffix and prefix fallback matching to handle OCR and digital extraction noise.
     """
     if not name or len(name) < 3:
         return "unknown"
-    name_esc = re.escape(name)
-    text_lower = text.lower()
-    
-    best_role = "unknown"
-    min_dist = 999999
-    
-    # 1. Proximity scan inside an 80-character window
-    for m in re.finditer(name_esc, text, re.IGNORECASE):
-        start = max(0, m.start() - 80)
-        end = min(len(text), m.end() + 80)
-        window = text[start:end].lower()
         
-        indicators = [
-            ("non-claimant", ["non-claimant", "non claimant", "owner", "driver", "insurance", "insur."]),
-            ("claimant", ["claimant", "petitioner", "victim", "injured"])
-        ]
+    def _exact_role(name_query):
+        if not name_query or len(name_query) < 3:
+            return "unknown"
+        name_esc = re.escape(name_query)
+        best_role = "unknown"
+        min_dist = 999999
         
-        for role, keywords in indicators:
-            for kw in keywords:
-                for kw_m in re.finditer(re.escape(kw), window):
-                    name_offset = m.start() - start
-                    kw_offset = kw_m.start()
-                    dist = abs(kw_offset - name_offset)
-                    
-                    if dist < min_dist:
-                        min_dist = dist
-                        best_role = role
+        # 1. Proximity scan inside an 80-character window
+        for m in re.finditer(name_esc, text, re.IGNORECASE):
+            start = max(0, m.start() - 80)
+            end = min(len(text), m.end() + 80)
+            window = text[start:end].lower()
+            
+            indicators = [
+                ("non-claimant", ["non-claimant", "non claimant", "owner", "driver", "insurance", "insur."]),
+                ("claimant", ["claimant", "petitioner", "victim", "injured"])
+            ]
+            
+            for role, keywords in indicators:
+                for kw in keywords:
+                    for kw_m in re.finditer(re.escape(kw), window):
+                        name_offset = m.start() - start
+                        kw_offset = kw_m.start()
+                        dist = abs(kw_offset - name_offset)
                         
-    # 2. Line-level fallback for standalone declarations
-    if best_role == "unknown":
-        for line in text.split("\n"):
-            line_lower = line.lower()
-            if name.lower() in line_lower:
-                has_non_claimant = any(kw in line_lower for kw in ["non-claimant", "non claimant", "owner", "driver", "insurance", "insur."])
-                has_claimant = any(kw in line_lower for kw in ["claimant", "petitioner", "victim", "injured"])
-                if has_non_claimant and not has_claimant:
-                    return "non-claimant"
-                if has_claimant and not has_non_claimant:
-                    return "claimant"
-                    
-    return best_role
+                        if dist < min_dist:
+                            min_dist = dist
+                            best_role = role
+                            
+        # 2. Line-level fallback for standalone declarations
+        if best_role == "unknown":
+            for line in text.split("\n"):
+                line_lower = line.lower()
+                if name_query.lower() in line_lower:
+                    has_non_claimant = any(kw in line_lower for kw in ["non-claimant", "non claimant", "owner", "driver", "insurance", "insur."])
+                    has_claimant = any(kw in line_lower for kw in ["claimant", "petitioner", "victim", "injured"])
+                    if has_non_claimant and not has_claimant:
+                        return "non-claimant"
+                    if has_claimant and not has_non_claimant:
+                        return "claimant"
+                        
+        return best_role
+
+    # 1. Try exact match first
+    role = _exact_role(name)
+    if role != "unknown":
+        return role
+
+    # 2. Try partial token-based fallback (suffix and prefix matching)
+    name_clean = re.sub(r'[^\w\s]', '', name)
+    tokens = [t for t in name_clean.split() if len(t) >= 3]
+    
+    if len(tokens) >= 2:
+        # Try matching the last 2 tokens (e.g. "Bai Baiga" for "Santo Bai Baiga")
+        last_two = " ".join(tokens[-2:])
+        role = _exact_role(last_two)
+        if role != "unknown":
+            logger.info(f"Resolved role for '{name}' as '{role}' using suffix match '{last_two}'")
+            return role
+            
+        # Try matching the first 2 tokens (e.g. "Birendra Singh" or "Santo Bai")
+        first_two = " ".join(tokens[:2])
+        role = _exact_role(first_two)
+        if role != "unknown":
+            logger.info(f"Resolved role for '{name}' as '{role}' using prefix match '{first_two}'")
+            return role
+
+    # 3. Try unique single tokens (skipping extremely common last names / legal particles)
+    for token in tokens:
+        if token.lower() in ["singh", "devi", "kumar", "bai", "sharma", "verma", "yadav", "gupta", "lal", "prasad", "others", "vs", "versus"]:
+            continue
+        role = _exact_role(token)
+        if role != "unknown":
+            logger.info(f"Resolved role for '{name}' as '{role}' using unique token match '{token}'")
+            return role
+
+    return "unknown"
 
 
 def extract_relationship_entities(text):
@@ -1277,7 +1315,7 @@ def parse_extracted_text(text_lines):
 
     # Deceased Block Extraction (Page 8 - High Court Factual Details)
     deceased_block_match = re.search(
-        r'\b(?:deceased\s+person|description\s+of\s+deceased|name\s+and\s+description\s+of\s+the\s+deceased)\b.*?\b(?:name)\s*[:\-]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})',
+        r'\b(?:deceased\s+person|description\s+of\s+deceased|name\s+and\s+description\s+of\s+the\s+deceased)\b.*?\b(?:name)\s*[:\-;]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})',
         full_text,
         re.IGNORECASE | re.DOTALL
     )
@@ -1362,7 +1400,7 @@ def parse_extracted_text(text_lines):
 
     # Deceased Block Extraction (Age)
     deceased_age_match = re.search(
-        r'\b(?:deceased\s+person|description\s+of\s+deceased)\b.*?\b(?:age)\s*[:\-]\s*(\d{1,2})\b',
+        r'\b(?:deceased\s+person|description\s+of\s+deceased)\b.*?\b(?:age)\s*[:\-;]\s*(\d{1,2})\b',
         full_text,
         re.IGNORECASE | re.DOTALL
     )
@@ -1396,7 +1434,7 @@ def parse_extracted_text(text_lines):
 
     # Deceased Block Extraction (Occupation)
     deceased_occ_match = re.search(
-        r'\b(?:deceased\s+person|description\s+of\s+deceased)\b.*?\b(?:occupation)\s*[:\-]\s*([A-Za-z\s]+)\b',
+        r'\b(?:deceased\s+person|description\s+of\s+deceased)\b.*?\b(?:occupation)\s*[:\-;]\s*([A-Za-z\s]+)\b',
         full_text,
         re.IGNORECASE | re.DOTALL
     )

@@ -929,19 +929,35 @@ def extract_award_amount_from_text(text_lines: list) -> float:
     """
     Extracts an explicit tribunal award amount from raw OCR text lines.
     Returns 0.0 if no clear amount is found.
-    LEGAL SAFETY: Only returns amounts found in actual OCR text.
+    LEGAL SAFETY: Only returns amounts found in actual OCR text, skipping exaggeration claims.
     """
     award_patterns = [
-        r'(?:total|final|award|sum\s+of|compensation\s+of)\s*(?:award|amount|is|of)?\s*(?:rs\.?|inr|rupees)?\s*([\d,]{5,10})\b',
-        r'\b(?:rs\.?|inr)\s*([\d,]{5,10})\b\s*(?:with\s*interest|is\s*awarded|as\s*compensation)'
+        r'(?:total|final|award|awarded|amount|sum\s+of|compensation\s+of)\b[^0-9]{0,50}?(?:rs\.?|inr|rupees)?\s*([\d,]{5,10})\b',
+        r'\b(?:rs\.?|inr)\s*([\d,]{5,10})\b[^0-9]{0,50}?(?:with\s*interest|is\s*awarded|as\s*compensation|towards)'
     ]
     full_text_lower = "\n".join(text_lines).lower()
     for pat in award_patterns:
-        m = re.findall(pat, full_text_lower)
-        if m:
-            # clean commas and convert to float
-            cleaned = re.sub(r'[^\d]', '', m[0])
-            return float(cleaned)
+        candidates = []
+        for match in re.finditer(pat, full_text_lower):
+            val_str = match.group(1)
+            val = float(re.sub(r'[^\d]', '', val_str))
+            
+            # Check context window before the match to see if it's a claim/demand
+            start_pos = max(0, match.start() - 60)
+            pre_ctx = full_text_lower[start_pos:match.start()]
+            
+            if any(kw in pre_ctx for kw in ["claim", "claiming", "sought", "demand", "demanded", "prayed", "prayer", "valuation"]):
+                logger.info(f"Skipping claimed amount Rs. {val:,.0f} from award candidate list due to claim context: '{pre_ctx.strip()}'")
+                continue
+                
+            candidates.append(val)
+            
+        if candidates:
+            # Exclude low values under 5000 (which are court fees/diet), and return the first valid candidate
+            valid_candidates = [c for c in candidates if c >= 5000]
+            if valid_candidates:
+                return valid_candidates[0]
+                
     return 0.0
 
 
@@ -1021,6 +1037,7 @@ def run_background_pdf_indexing(file_id: str, temp_path: str, filename: str):
                 text_lines = alt_lines
                 fallback_source = "AlternateOCR"
                 ocr_debug["fallback_ocr_engine"] = "PyMuPDF/pdfplumber"
+                ocr_debug["ocr_quality_score"] = 1.0
 
         BATCH_QUEUE[file_id]["progress"] = 90
 
@@ -1039,7 +1056,20 @@ def run_background_pdf_indexing(file_id: str, temp_path: str, filename: str):
         award_amount = extract_award_amount_from_text(text_lines)
         if award_amount > 0:
             suggestions["award_amount"] = award_amount
-            logger.info(f"Judicial award amount parsed: Rs. {award_amount:,.0f}")
+            suggestions["total_compensation"] = award_amount
+            
+            # Recalculate notional monthly income with the true award amount
+            from backend.parser_heuristics import deduce_notional_income
+            age = suggestions.get("age") or 30
+            marital_status = suggestions.get("marital_status") or "married"
+            dependents = suggestions.get("dependents") or ""
+            future_prospect = suggestions.get("future_prospect") or 25.0
+            multiplier = suggestions.get("multiplier") or 15
+            
+            suggestions["monthly_income"] = deduce_notional_income(
+                award_amount, age, marital_status, dependents, future_prospect, multiplier
+            )
+            logger.info(f"Judicial award amount parsed: Rs. {award_amount:,.0f}, recalculated monthly income: Rs. {suggestions['monthly_income']:,.2f}")
 
         # 7. Index into Qdrant vector DB
         BATCH_QUEUE[file_id]["status"] = "indexing"
@@ -1119,6 +1149,7 @@ async def process_single_file(file: UploadFile = File(...)):
                     text_lines = alt_lines
                     fallback_source = "AlternateOCR"
                     ocr_debug["fallback_ocr_engine"] = "PyMuPDF/pdfplumber"
+                    ocr_debug["ocr_quality_score"] = 1.0
         else:
             # Image upload — 4-layer retry
             text_lines, ocr_debug = perform_ocr_on_image(temp_path)
@@ -1138,6 +1169,19 @@ async def process_single_file(file: UploadFile = File(...)):
         award_amount = extract_award_amount_from_text(text_lines)
         if award_amount > 0:
             suggestions["award_amount"] = award_amount
+            suggestions["total_compensation"] = award_amount
+            
+            # Recalculate notional monthly income with the true award amount
+            from backend.parser_heuristics import deduce_notional_income
+            age = suggestions.get("age") or 30
+            marital_status = suggestions.get("marital_status") or "married"
+            dependents = suggestions.get("dependents") or ""
+            future_prospect = suggestions.get("future_prospect") or 25.0
+            multiplier = suggestions.get("multiplier") or 15
+            
+            suggestions["monthly_income"] = deduce_notional_income(
+                award_amount, age, marital_status, dependents, future_prospect, multiplier
+            )
 
         os.unlink(temp_path)
         return {
