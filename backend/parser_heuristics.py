@@ -247,11 +247,63 @@ def clean_legal_name(name_str):
     return name_str
 
 
+def determine_name_role(name, text):
+    """
+    Module-level Claimant vs Non-claimant Role Resolution Engine.
+    Uses character-distance proximity between a name and explicit role labels inside an HSL-tailored
+    narrow semantic window to robustly assign 'claimant' vs 'non-claimant' vs 'unknown' roles.
+    """
+    if not name or len(name) < 3:
+        return "unknown"
+    name_esc = re.escape(name)
+    text_lower = text.lower()
+    
+    best_role = "unknown"
+    min_dist = 999999
+    
+    # 1. Proximity scan inside an 80-character window
+    for m in re.finditer(name_esc, text, re.IGNORECASE):
+        start = max(0, m.start() - 80)
+        end = min(len(text), m.end() + 80)
+        window = text[start:end].lower()
+        
+        indicators = [
+            ("non-claimant", ["non-claimant", "non claimant", "owner", "driver", "insurance", "insur."]),
+            ("claimant", ["claimant", "petitioner", "victim", "injured"])
+        ]
+        
+        for role, keywords in indicators:
+            for kw in keywords:
+                for kw_m in re.finditer(re.escape(kw), window):
+                    name_offset = m.start() - start
+                    kw_offset = kw_m.start()
+                    dist = abs(kw_offset - name_offset)
+                    
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_role = role
+                        
+    # 2. Line-level fallback for standalone declarations
+    if best_role == "unknown":
+        for line in text.split("\n"):
+            line_lower = line.lower()
+            if name.lower() in line_lower:
+                has_non_claimant = any(kw in line_lower for kw in ["non-claimant", "non claimant", "owner", "driver", "insurance", "insur."])
+                has_claimant = any(kw in line_lower for kw in ["claimant", "petitioner", "victim", "injured"])
+                if has_non_claimant and not has_claimant:
+                    return "non-claimant"
+                if has_claimant and not has_non_claimant:
+                    return "claimant"
+                    
+    return best_role
+
+
 def extract_relationship_entities(text):
     """
     Step 4 — Relationship-Aware Entity Splitting:
     Intelligently splits "Claimant Name, S/o Father Name" into claimant_name and father_name,
     applying strict truncation boundaries on each component separately.
+    Line-by-line execution prevents bleeding across paragraphs.
     """
     if not text:
         return None
@@ -262,69 +314,67 @@ def extract_relationship_entities(text):
         (r'(.*?)\b(?:w[\./\s]*o|wife\s+of)\b[\s\.]*(?:shri|late)?\s*(.*)', "Wife of")
     ]
     
-    for pat, rel_type in rel_patterns:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
-            c_part = m.group(1).strip()
-            f_part = m.group(2).strip()
+    lines = text.split('\n')
+    for line in lines:
+        line_strip = line.strip()
+        if not line_strip:
+            continue
             
-            # Take only the last non-empty line of c_part to prevent leaking preceding lines/headings
-            c_part_lines = [l.strip() for l in c_part.split('\n') if l.strip()]
-            if c_part_lines:
-                c_part = c_part_lines[-1]
+        for pat, rel_type in rel_patterns:
+            m = re.search(pat, line_strip, re.IGNORECASE)
+            if m:
+                c_part = m.group(1).strip()
+                f_part = m.group(2).strip()
                 
-            # Take only the first non-empty line of f_part to prevent leaking subsequent lines
-            f_part_lines = [l.strip() for l in f_part.split('\n') if l.strip()]
-            if f_part_lines:
-                f_part = f_part_lines[0]
-            
-            # Strip typical claimant/petitioner label prefixes from the claimant part
-            c_part = re.sub(r'^(?:the\s+)?(?:claimant\s+name|petitioner\s+name|name\s+of\s+injured|name\s+of\s+claimant|name\s+of\s+victim|claimant|petitioner|victim|injured|name)\s*[:\-–\s]+', '', c_part, flags=re.IGNORECASE)
-            
-            # Apply boundary truncation to avoid leaking trailing fields
-            stop_labels = [
-                "date of birth", "dob", "d.o.b", "born on", "age", "aged",
-                "occupation", "employed as", "working as", "monthly income", "salary",
-                "income", "disability", "dependents", "address", "resident of", "marital status"
-            ]
-            
-            # Truncate c_part at stop labels and comma
-            for sl in stop_labels:
-                sl_match = re.search(r'\b' + re.escape(sl) + r'\b', c_part, re.IGNORECASE)
-                if sl_match:
-                    c_part = c_part[:sl_match.start()]
-            
-            c_comma_pos = c_part.find(",")
-            if c_comma_pos != -1:
-                c_part = c_part[:c_comma_pos]
+                # Strip typical claimant/petitioner label prefixes from the claimant part
+                c_part = re.sub(r'^(?:the\s+)?(?:claimant\s+name|petitioner\s+name|name\s+of\s+injured|name\s+of\s+claimant|name\s+of\s+victim|claimant|petitioner|victim|injured|name)\s*[:\-–\s]+', '', c_part, flags=re.IGNORECASE)
                 
-            # Apply boundary truncation to the father part specifically to avoid leaking trailing fields
-            # 1. Truncate at comma
-            comma_pos = f_part.find(",")
-            if comma_pos != -1:
-                f_part = f_part[:comma_pos]
+                # Apply boundary truncation to avoid leaking trailing fields
+                stop_labels = [
+                    "date of birth", "dob", "d.o.b", "born on", "age", "aged",
+                    "occupation", "employed as", "working as", "monthly income", "salary",
+                    "income", "disability", "dependents", "address", "resident of", "marital status"
+                ]
                 
-            # 2. Truncate at newline
-            newline_pos = re.search(r'[\r\n]', f_part)
-            if newline_pos:
-                f_part = f_part[:newline_pos.start()]
+                # Truncate c_part at stop labels and comma
+                for sl in stop_labels:
+                    sl_match = re.search(r'\b' + re.escape(sl) + r'\b', c_part, re.IGNORECASE)
+                    if sl_match:
+                        c_part = c_part[:sl_match.start()]
                 
-            # 3. Truncate at Date pattern
-            date_pos = re.search(r'\b\d{1,2}[-/\.]\d{1,2}[-/\.]\d{4}\b', f_part)
-            if date_pos:
-                f_part = f_part[:date_pos.start()]
-                
-            # 4. Truncate at stop labels
-            for sl in stop_labels:
-                sl_match = re.search(r'\b' + re.escape(sl) + r'\b', f_part, re.IGNORECASE)
-                if sl_match:
-                    f_part = f_part[:sl_match.start()]
+                c_comma_pos = c_part.find(",")
+                if c_comma_pos != -1:
+                    c_part = c_part[:c_comma_pos]
                     
-            c_clean = clean_legal_name(c_part)
-            f_clean = clean_legal_name(f_part)
-            
-            if c_clean and f_clean:
-                return c_clean, rel_type, f_clean
+                # Apply boundary truncation to the father part specifically to avoid leaking trailing fields
+                # 1. Truncate at comma
+                comma_pos = f_part.find(",")
+                if comma_pos != -1:
+                    f_part = f_part[:comma_pos]
+                    
+                # 2. Truncate at Date pattern
+                date_pos = re.search(r'\b\d{1,2}[-/\.]\d{1,2}[-/\.]\d{4}\b', f_part)
+                if date_pos:
+                    f_part = f_part[:date_pos.start()]
+                    
+                # 3. Truncate at stop labels
+                for sl in stop_labels:
+                    sl_match = re.search(r'\b' + re.escape(sl) + r'\b', f_part, re.IGNORECASE)
+                    if sl_match:
+                        f_part = f_part[:sl_match.start()]
+                        
+                c_clean = clean_legal_name(c_part)
+                f_clean = clean_legal_name(f_part)
+                
+                if c_clean and f_clean:
+                    # Validate that c_clean is NOT a non-claimant role in the claimant section!
+                    role = determine_name_role(c_clean, text)
+                    if role == "non-claimant":
+                        logger.info(f"Relationship splitting rejected '{c_clean}' because role is resolved as non-claimant")
+                        continue
+                    return c_clean, rel_type, f_clean
+                    
+    return None
                 
     return None
 
@@ -1088,31 +1138,6 @@ def parse_extracted_text(text_lines):
     cause_title_page = 1
     cause_title_sec = "raw_ocr"
     
-    def determine_name_role(name, text):
-        if not name or len(name) < 3:
-            return "unknown"
-        name_esc = re.escape(name)
-        text_lower = text.lower()
-        
-        # Check if the name appears near Non-claimant or Claimant
-        for line in text.split("\n"):
-            line_lower = line.lower()
-            if name.lower() in line_lower:
-                if "non-claimant" in line_lower or "non claimant" in line_lower or "owner" in line_lower or "driver" in line_lower:
-                    return "non-claimant"
-                if "claimant" in line_lower or "petitioner" in line_lower:
-                    return "claimant"
-                    
-        for m in re.finditer(name_esc, text, re.IGNORECASE):
-            start = max(0, m.start() - 80)
-            end = min(len(text), m.end() + 80)
-            window = text[start:end].lower()
-            if "non-claimant" in window or "non claimant" in window or "owner" in window or "driver" in window:
-                return "non-claimant"
-            if "claimant" in window or "petitioner" in window:
-                return "claimant"
-        return "unknown"
-    
     # Search for Vs patterns in the first 5 pages of full_text
     top_pages_text = "\n".join(p["text"] for p in pages[:5]) if pages else full_text[:4000]
     for vs_pattern in [r'\bversus\b', r'\bvs\b\.?', r'\bv\b\.?']:
@@ -1159,13 +1184,35 @@ def parse_extracted_text(text_lines):
                         cause_title_sec = "cause_title"
                         logger.info(f"Cause title extraction (role resolved): chose claimant '{cause_title_claimant}' over non-claimant '{part2_clean}'")
                         break
-                    elif role_part1 == "non-claimant":
+                    elif role_part1 == "claimant" and role_part2 != "claimant":
+                        cause_title_claimant = part1_clean
+                        cause_title_conf = 0.95
+                        cause_title_page = find_exact_page(part1_clean, 1, 5, pages) if pages else 1
+                        cause_title_sec = "cause_title"
+                        logger.info(f"Cause title extraction (role resolved): chose claimant '{cause_title_claimant}' because part1 is claimant and part2 is not")
+                        break
+                    elif role_part2 == "claimant" and role_part1 != "claimant":
+                        cause_title_claimant = part2_clean
+                        cause_title_conf = 0.95
+                        cause_title_page = find_exact_page(part2_clean, 1, 5, pages) if pages else 1
+                        cause_title_sec = "cause_title"
+                        logger.info(f"Cause title extraction (role resolved): chose claimant '{cause_title_claimant}' because part2 is claimant and part1 is not")
+                        break
+                    elif role_part1 == "non-claimant" and role_part2 != "non-claimant":
                         if part2_clean and len(part2_clean) > 2:
                             cause_title_claimant = part2_clean
                             cause_title_conf = 0.90
                             cause_title_page = find_exact_page(part2_clean, 1, 5, pages) if pages else 1
                             cause_title_sec = "cause_title"
                             logger.info(f"Cause title extraction (role resolved): chose part2 '{cause_title_claimant}' because part1 is non-claimant")
+                            break
+                    elif role_part2 == "non-claimant" and role_part1 != "non-claimant":
+                        if part1_clean and len(part1_clean) > 2:
+                            cause_title_claimant = part1_clean
+                            cause_title_conf = 0.90
+                            cause_title_page = find_exact_page(part1_clean, 1, 5, pages) if pages else 1
+                            cause_title_sec = "cause_title"
+                            logger.info(f"Cause title extraction (role resolved): chose part1 '{cause_title_claimant}' because part2 is non-claimant")
                             break
                     else:
                         cause_title_claimant = part1_clean
