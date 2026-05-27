@@ -168,7 +168,8 @@ def clean_legal_name(name_str):
     IGNORE_KEYWORDS = [
         "advocate", "counsel", "judge", "justice", 
         "insurance company", "insurance co", "citation", "referred case", 
-        "cited case", "vakalatnama", "scc", "acj"
+        "cited case", "vakalatnama", "scc", "acj",
+        "insurance", "insur", "general", "company", "ltd", "limited", "corp", "corporation"
     ]
     name_lower = name_str.lower()
     if any(kw in name_lower for kw in IGNORE_KEYWORDS):
@@ -181,14 +182,28 @@ def clean_legal_name(name_str):
     # Clean the string by removing legal noise like "versus", "vs.", "appellant", "respondent"
     for vs_pattern in [r'\bversus\b', r'\bvs\b\.?', r'\bv\b\.?']:
         if re.search(vs_pattern, name_lower):
-            name_str = re.split(vs_pattern, name_str, flags=re.IGNORECASE)[0].strip()
+            parts = re.split(vs_pattern, name_str, flags=re.IGNORECASE)
+            part1 = parts[0].strip()
+            part2 = parts[1].strip() if len(parts) > 1 else ""
+            
+            # Check if part1 is an insurance company/corporate entity
+            part1_lower = part1.lower()
+            is_ins = any(kw in part1_lower for kw in ["insurance", "ins.", "co.", "ltd", "limited", "corp", "corporation"])
+            
+            if is_ins and part2:
+                name_str = part2
+            else:
+                name_str = part1
             name_lower = name_str.lower()
             
-    # Remove role suffixes/prefixes safely
+    # Remove role suffixes/prefixes safely (including group markers)
     role_patterns = [
         r'\bappellants?\b\.?', r'\brespondents?\b\.?', r'\bclaimants?\b\.?', 
         r'\bpetitioners?\b\.?', r'\bvictims?\b\.?', r'\binjured\b\.?', 
-        r'\bdeceased\b\.?', r'\boriginal petitioner\b\.?', r'\bo\.p\b\.?'
+        r'\bdeceased\b\.?', r'\boriginal petitioner\b\.?', r'\bo\.p\b\.?',
+        r'\b(?:and|&)\s+others?\b\.?', r'\b(?:and|&)\s+ors\b\.?', 
+        r'\b(?:and|&)\s+anr\b\.?', r'\b(?:and|&)\s+another\b\.?',
+        r'\bothers?\b\.?', r'\bors\b\.?'
     ]
     for role_pat in role_patterns:
         name_str = re.sub(role_pat, '', name_str, flags=re.IGNORECASE).strip()
@@ -423,6 +438,8 @@ def classify_page_fallback(page_text, section_name):
         return len(dates) >= 2 and any(w in text_lower for w in ["accident", "filed", "petition", "date"])
         
     elif section_name == "claimant_section":
+        if any(w in text_lower for w in ["vakalatnama", "vakalath", "appoint", "advocate"]):
+            return False
         has_rel = any(w in text_lower for w in ["s/o", "d/o", "w/o", "son of", "wife of"])
         has_parties = any(w in text_lower for w in ["claimant", "petitioner", "versus", "respondent"])
         return has_rel or has_parties
@@ -976,9 +993,47 @@ def parse_extracted_text(text_lines):
     # Helper for contextual extraction parameters
     parser_debug = {}
 
-    # ======================================================
-    # FIELD EXTRACTION WITH SECTION PRIORITIZATION & CONTAMINATION FILTERS
-    # ======================================================
+    # Cause Title Claimant Extraction (e.g. "Insurance vs Claimant" or "Claimant vs Driver")
+    cause_title_claimant = None
+    cause_title_conf = 0.0
+    cause_title_page = 1
+    cause_title_sec = "raw_ocr"
+    
+    # Search for Vs patterns in the first 5 pages of full_text
+    top_pages_text = "\n".join(p["text"] for p in pages[:5]) if pages else full_text[:4000]
+    for vs_pattern in [r'\bversus\b', r'\bvs\b\.?', r'\bv\b\.?']:
+        # Match lines containing Vs
+        for line in top_pages_text.split("\n"):
+            if re.search(vs_pattern, line, re.IGNORECASE):
+                parts = re.split(vs_pattern, line, flags=re.IGNORECASE)
+                part1 = parts[0].strip()
+                part2 = parts[1].strip() if len(parts) > 1 else ""
+                
+                # Clean role words like APPELLANT, RESPONDENT, etc.
+                part1_clean = clean_legal_name(part1)
+                part2_clean = clean_legal_name(part2)
+                
+                # Check if part1 is an insurance company
+                part1_lower = part1.lower()
+                is_ins = any(kw in part1_lower for kw in ["insurance", "insur", "ins.", "co.", "ltd", "limited", "corp", "corporation", "gic", "hdi", "magma", "general"])
+                
+                if is_ins and part2_clean and len(part2_clean) > 2:
+                    cause_title_claimant = part2_clean
+                    cause_title_conf = 0.95
+                    cause_title_page = find_exact_page(part2_clean, 1, 5, pages) if pages else 1
+                    cause_title_sec = "cause_title"
+                    logger.info(f"Cause title extraction: found claimant '{cause_title_claimant}' after insurance company '{part1_clean}'")
+                    break
+                elif part1_clean and len(part1_clean) > 2 and not is_ins:
+                    # If part1 is a person, they are likely the claimant/appellant
+                    cause_title_claimant = part1_clean
+                    cause_title_conf = 0.90
+                    cause_title_page = find_exact_page(part1_clean, 1, 5, pages) if pages else 1
+                    cause_title_sec = "cause_title"
+                    logger.info(f"Cause title extraction: found claimant '{cause_title_claimant}' before vs")
+                    break
+        if cause_title_claimant:
+            break
 
     # 1. Claimant Name extraction
     claimant_patterns = [
@@ -994,13 +1049,23 @@ def parse_extracted_text(text_lines):
         r'\bshri\b\s*(.*)',
         r'\bmr\b\s*(.*)',
         r'\bmrs\b\s*(.*)',
-        r'\bkumari\b\s*(.*)'
+        r'\bkumari\b\s*(.*)',
+        r'^\s*1\.\s*([A-Z][a-zA-Z\s\.\-]+)'
     ]
-    claimant_name, conf_claimant_name, sec_claimant_name, page_claimant_name = contextual_extract(
-        claimant_patterns, sections, [("claimant_section", 90), ("memo_of_appeal_section", 80)], type_cast=str,
-        field_name="claimant_name", debug_info=parser_debug, pages=pages, sections_metadata=sections_metadata, page_importances=page_importances
-    )
-    method_claimant_name = "Section-Aware Contextual Regex"
+    
+    if cause_title_claimant:
+        claimant_name = cause_title_claimant
+        conf_claimant_name = cause_title_conf
+        sec_claimant_name = cause_title_sec
+        page_claimant_name = cause_title_page
+        method_claimant_name = "Cause Title Parser"
+    else:
+        claimant_name, conf_claimant_name, sec_claimant_name, page_claimant_name = contextual_extract(
+            claimant_patterns, sections, [("claimant_section", 90), ("memo_of_appeal_section", 80)], type_cast=str,
+            field_name="claimant_name", debug_info=parser_debug, pages=pages, sections_metadata=sections_metadata, page_importances=page_importances
+        )
+        method_claimant_name = "Section-Aware Contextual Regex"
+        
     if claimant_name: claimant_name = claimant_name.title()
 
     # 2. Deceased Name extraction

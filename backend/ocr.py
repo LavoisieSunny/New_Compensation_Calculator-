@@ -28,6 +28,9 @@ _easyocr_reader = None
 # Global Batch Upload and Indexing Process Queue
 BATCH_QUEUE = {}
 
+# Whether to prefer Tesseract OCR on Windows (speeds up CPU processing and prevents Paddle C++ crashes)
+PREFER_TESSERACT = True
+
 # ======================================================
 # OCR QUALITY GATE THRESHOLD
 # Below this score, legal reconstruction is DISABLED.
@@ -57,6 +60,10 @@ _LEGAL_QUALITY_KEYWORDS = [
 
 def get_ocr_instance():
     global _ocr_instance, OCR_INITIALIZED
+    if PREFER_TESSERACT and is_tesseract_available():
+        OCR_INITIALIZED = True
+        return "tesseract_preferred"
+        
     if _ocr_instance is None:
         try:
             logger.info("Initializing PaddleOCR (disabling MKLDNN to avoid oneDNN PIR crash)...")
@@ -465,25 +472,45 @@ def perform_ocr_page_with_retry(ocr_engine, page_doc, page_idx: int, total_pages
     save_ocr_debug_image(f"debug_original_{page_num}.png", original_pil)
     save_ocr_debug_image(f"debug_processed_{page_num}.png", processed_pil)
 
-    # 4. Primary OCR Engine: PaddleOCR
+    # 4. Primary OCR Engine Selection (Prefer Tesseract if config allows)
     engine_used = "PaddleOCR"
     confidence = 0.0
     text_lines = []
     
-    try:
-        processed_path = f"debug_processed_{page_num}.png"
-        result = ocr_engine.ocr(processed_path)
-        text_lines = extract_text_lines_from_paddle_result(result)
-        confidence = calculate_paddle_confidence(result)
-        
-        # Override for successful PaddleX v3 extractions returning 0.00 confidence
-        if confidence == 0.00 and len(text_lines) >= 15:
-            confidence = 0.85
-            logger.info(f"Page {page_num}/{total_pages} - PaddleX v3 detected with {len(text_lines)} lines, setting confidence default to 0.85")
+    use_tess_primary = PREFER_TESSERACT and is_tesseract_available()
+    
+    if use_tess_primary:
+        try:
+            tess_lines, tess_conf = run_tesseract_fallback(processed_pil)
+            if tess_lines:
+                text_lines = tess_lines
+                confidence = tess_conf
+                engine_used = "Tesseract"
+                logger.info(f"Page {page_num}/{total_pages} - Tesseract (Primary): {len(text_lines)} lines, confidence: {confidence:.2f}")
+        except Exception as e:
+            logger.error(f"Page {page_num}/{total_pages} - Tesseract primary failed: {str(e)}")
             
-        logger.info(f"Page {page_num}/{total_pages} - PaddleOCR: {len(text_lines)} lines, confidence: {confidence:.2f}")
-    except Exception as e:
-        logger.error(f"Page {page_num}/{total_pages} - PaddleOCR failed: {str(e)}")
+    if not text_lines:
+        try:
+            processed_path = f"debug_processed_{page_num}.png"
+            # Lazily initialize PaddleOCR if ocr_engine is just a string placeholder
+            if ocr_engine is None or isinstance(ocr_engine, str):
+                ocr_engine = get_ocr_instance()
+                
+            if ocr_engine and not isinstance(ocr_engine, str):
+                result = ocr_engine.ocr(processed_path)
+                text_lines = extract_text_lines_from_paddle_result(result)
+                confidence = calculate_paddle_confidence(result)
+                
+                # Override for successful PaddleX v3 extractions returning 0.00 confidence
+                if confidence == 0.00 and len(text_lines) >= 15:
+                    confidence = 0.85
+                    logger.info(f"Page {page_num}/{total_pages} - PaddleX v3 detected with {len(text_lines)} lines, setting confidence default to 0.85")
+                    
+                engine_used = "PaddleOCR"
+                logger.info(f"Page {page_num}/{total_pages} - PaddleOCR: {len(text_lines)} lines, confidence: {confidence:.2f}")
+        except Exception as e:
+            logger.error(f"Page {page_num}/{total_pages} - PaddleOCR failed: {str(e)}")
 
     # 5. Evaluate quality metrics to decide Tesseract fallback
     text_density = (sum(len(l) for l in text_lines) / max(len(text_lines), 1) / 80.0) if text_lines else 0.0
@@ -498,7 +525,7 @@ def perform_ocr_page_with_retry(ocr_engine, page_doc, page_idx: int, total_pages
         text_density < 0.15
     )
 
-    if trigger_fallback and is_tesseract_available():
+    if trigger_fallback and not use_tess_primary and is_tesseract_available():
         logger.info(
             f"Page {page_num}/{total_pages} - Activating Tesseract fallback "
             f"(reason: empty={len(text_lines)==0}, confidence={confidence:.2f}<0.50, text_density={text_density:.2f}<0.15)"
