@@ -533,7 +533,7 @@ def perform_ocr_page_with_retry(ocr_engine, page_doc, page_idx: int, total_pages
 # MAIN SCANNED PDF OCR PIPELINE
 # ======================================================
 
-def perform_ocr_on_scanned_pdf(file_path: str, progress_callback=None) -> tuple:
+def perform_ocr_on_scanned_pdf(file_path: str, progress_callback=None, scan_all_pages: bool = False) -> tuple:
     """
     Renders pages of a scanned PDF using pypdfium2 and runs the
     4-layer per-page OCR retry pipeline on each page.
@@ -556,12 +556,13 @@ def perform_ocr_on_scanned_pdf(file_path: str, progress_callback=None) -> tuple:
     try:
         doc = pdfium.PdfDocument(file_path)
         total_pages = len(doc)
-        logger.info(f"Scanned PDF '{file_path}' ({total_pages} pages): starting 4-layer OCR retry pipeline...")
+        logger.info(f"Scanned PDF '{file_path}' ({total_pages} pages): starting 4-layer OCR retry pipeline (scan_all_pages={scan_all_pages})...")
 
-        # Optimization: for large PDFs (>10 pages), scan first 5 + last 5 only
+        # Optimization: for large PDFs (>10 pages), scan first 12 + last 8 only by default
         # (claimant details are at the start; award/decree at the end)
-        if total_pages > 10:
-            pages_to_scan = sorted(set(list(range(5)) + list(range(total_pages - 5, total_pages))))
+        # Background indexing scans 100% of the pages to ensure thorough vector DB coverage!
+        if total_pages > 10 and not scan_all_pages:
+            pages_to_scan = sorted(set(list(range(12)) + list(range(total_pages - 8, total_pages))))
             logger.info(f"Large PDF detected. Scanning pages: {[p+1 for p in pages_to_scan]}")
         else:
             pages_to_scan = list(range(total_pages))
@@ -843,7 +844,7 @@ def run_background_pdf_indexing(file_id: str, temp_path: str, filename: str):
         fallback_source = "DigitalPDF"
         ocr_debug = _build_ocr_debug("DigitalPDF", 0, 1.0, [], [], [], "", 0.0)
 
-        # 2. Sparse → 4-layer OCR retry pipeline
+        # 2. Sparse → 4-layer OCR retry pipeline (scan_all_pages=True for complete vector DB index)
         if is_extracted_text_sparse(text_lines):
             logger.info(f"Selectable text sparse. Running 4-layer OCR pipeline for '{filename}'")
 
@@ -851,7 +852,7 @@ def run_background_pdf_indexing(file_id: str, temp_path: str, filename: str):
                 BATCH_QUEUE[file_id]["progress"] = prog_percent
 
             text_lines, ocr_debug = perform_ocr_on_scanned_pdf(
-                temp_path, progress_callback=report_progress
+                temp_path, progress_callback=report_progress, scan_all_pages=True
             )
             fallback_source = "PaddleOCR"
 
