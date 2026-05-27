@@ -680,9 +680,52 @@ document.addEventListener("DOMContentLoaded", () => {
         document.querySelectorAll(".low-confidence-input").forEach(el => el.classList.remove("low-confidence-input"));
         document.querySelectorAll(".ai-metadata-badge").forEach(el => el.remove());
 
-        if (suggestions.case_type) {
-            caseTypeSelect.value = suggestions.case_type;
+        // Extract case type robustly supporting both flat and nested schemas
+        let caseType = suggestions.case_type;
+        if (caseType && typeof caseType === "object" && caseType.value !== undefined) {
+            caseType = caseType.value;
+        }
+
+        if (caseType) {
+            caseTypeSelect.value = caseType;
             caseTypeSelect.dispatchEvent(new Event("change"));
+        }
+
+        // Helper to extract value and details from suggestions (nested or flat format)
+        function getValAndDetails(key) {
+            let item = suggestions[key];
+            
+            // Map keys dynamically to match incoming nested JSON structure
+            if (item === undefined) {
+                if (key === "name") {
+                    item = suggestions["deceased_name"] || suggestions["injured_name"];
+                } else if (key === "consortium") {
+                    item = suggestions["loss_of_consortium"];
+                } else if (key === "loss_estate") {
+                    item = suggestions["loss_of_estate"];
+                } else if (key === "disability") {
+                    item = suggestions["permanent_disability"];
+                }
+            }
+
+            if (item === undefined || item === null) return null;
+
+            if (typeof item === "object" && item.value !== undefined) {
+                return item; // returns complete nested { value, confidence, source_page, source_section, extraction_method }
+            }
+            
+            // Return simulated nested structure for backward-compatible flat input
+            let confObj = null;
+            if (suggestions.confidence_scores) {
+                confObj = suggestions.confidence_scores[key];
+            }
+            return {
+                value: item,
+                confidence: confObj ? confObj.confidence : 0.9,
+                source_page: confObj ? confObj.source_page : 1,
+                source_section: confObj ? confObj.source_section : "raw_ocr",
+                extraction_method: confObj ? confObj.extraction_method : "Heuristic Regex"
+            };
         }
 
         const standardKeys = [
@@ -692,11 +735,13 @@ document.addEventListener("DOMContentLoaded", () => {
             "coliti", "misex", "loamiti", "lopmarri", "loexlife", "loveaff", "lossofenjoy",
             "medical_expenses", "future_medical_expenses", "pain_and_suffering", "transportation", "special_diet", "attender_charges", "loss_of_income"
         ];
+
         standardKeys.forEach(key => {
-            if (suggestions[key] !== undefined && suggestions[key] !== null && suggestions[key] !== "") {
+            const dataObj = getValAndDetails(key);
+            if (dataObj && dataObj.value !== undefined && dataObj.value !== null && dataObj.value !== "") {
                 const el = document.getElementById(key);
                 if (el) {
-                    el.value = suggestions[key];
+                    el.value = dataObj.value;
                     el.dispatchEvent(new Event("input"));
                     el.dispatchEvent(new Event("change"));
                 }
@@ -705,28 +750,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Convert and apply dates
         ["date_of_birth", "date_of_accident"].forEach(key => {
-            const val = suggestions[key];
-            if (val && val.includes("-")) {
-                const parts = val.split("-");
-                if (parts.length === 3 && parts[2].length === 4) {
-                    const htmlDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
-                    const targetEl = key === "date_of_birth" ? dobInput : doaInput;
-                    targetEl.value = htmlDate;
-                    targetEl.dispatchEvent(new Event("change"));
+            const dataObj = getValAndDetails(key);
+            if (dataObj && dataObj.value) {
+                const val = dataObj.value;
+                if (val.includes("-")) {
+                    const parts = val.split("-");
+                    if (parts.length === 3 && parts[2].length === 4) {
+                        const htmlDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                        const targetEl = key === "date_of_birth" ? dobInput : doaInput;
+                        targetEl.value = htmlDate;
+                        targetEl.dispatchEvent(new Event("change"));
+                    }
                 }
             }
         });
         
-        // Fallback Layer 7 — Human Verification UI warnings highlight
+        // Render premium glassmorphic confidence badges directly from mapped keys!
         const fieldMapping = {
             "name": "name",
-            "claimant_name": "name",
-            "deceased_name": "name",
             "father_name": "father_name",
             "date_of_birth": "date_of_birth",
             "date_of_accident": "date_of_accident",
             "place_of_accident": "place_of_accident",
-            "age": "age",
             "monthly_income": "monthly_income",
             "dependents": "dependents",
             "marital_status": "marital_status",
@@ -753,13 +798,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 .replace(/\b\w/g, c => c.toUpperCase());
         }
 
-        if (suggestions.confidence_scores) {
-            Object.keys(suggestions.confidence_scores).forEach(key => {
-                const confObj = suggestions.confidence_scores[key];
-                let confidence = confObj.confidence;
-                if (confidence <= 1.0 && confidence > 0) {
-                    confidence = Math.round(confidence * 100);
-                }
+        Object.keys(fieldMapping).forEach(key => {
+            const dataObj = getValAndDetails(key);
+            if (dataObj && dataObj.value !== undefined && dataObj.value !== null && dataObj.value !== "") {
                 const domId = fieldMapping[key];
                 if (domId && !processedInputIds.has(domId)) {
                     const inputEl = document.getElementById(domId);
@@ -767,7 +808,12 @@ document.addEventListener("DOMContentLoaded", () => {
                         processedInputIds.add(domId);
                         const formGroup = inputEl.closest(".form-group");
                         if (formGroup) {
-                            // 1. Create premium interactive badge and glassmorphic tooltip
+                            let confidence = dataObj.confidence;
+                            if (confidence <= 1.0 && confidence > 0) {
+                                confidence = Math.round(confidence * 100);
+                            }
+                            
+                            // Create premium interactive badge and glassmorphic tooltip
                             const badge = document.createElement("div");
                             badge.className = "ai-metadata-badge";
                             
@@ -788,15 +834,15 @@ document.addEventListener("DOMContentLoaded", () => {
                                     </div>
                                     <div class="tooltip-row">
                                         <span class="t-label">Source Section:</span>
-                                        <span class="t-value text-glow-purple">${cleanSectionName(confObj.source_section || confObj.source || 'N/A')}</span>
+                                        <span class="t-value text-glow-purple">${cleanSectionName(dataObj.source_section || dataObj.source || 'N/A')}</span>
                                     </div>
                                     <div class="tooltip-row">
                                         <span class="t-label">Source Page:</span>
-                                        <span class="t-value">Page ${confObj.source_page || 1}</span>
+                                        <span class="t-value">Page ${dataObj.source_page || 1}</span>
                                     </div>
                                     <div class="tooltip-row">
                                         <span class="t-label">Extraction Method:</span>
-                                        <span class="t-value" style="color: var(--color-primary); font-size: 0.72rem;">${confObj.extraction_method || 'N/A'}</span>
+                                        <span class="t-value" style="color: var(--color-primary); font-size: 0.72rem;">${dataObj.extraction_method || 'N/A'}</span>
                                     </div>
                                 </div>
                             `;
@@ -810,7 +856,7 @@ document.addEventListener("DOMContentLoaded", () => {
                                 label.appendChild(badge);
                             }
 
-                            // 2. Flag if confidence < 70 (keep legacy low-confidence warning border)
+                            // Flag low confidence with legacy verification warning label
                             if (isLow && confidence > 0) {
                                 const wrapper = inputEl.closest(".input-icon-wrapper") || inputEl.closest(".select-wrapper") || inputEl;
                                 wrapper.classList.add("low-confidence-input");
@@ -832,10 +878,10 @@ document.addEventListener("DOMContentLoaded", () => {
                         }
                     }
                 }
-            });
-        }
+            }
+        });
         
-        // Update Legal AI Summary Card
+        // Update Legal AI Summary Card (safe checking in case summary metadata is omitted)
         const summaryCard = document.getElementById("legal-ai-summary-card");
         const summaryBody = document.getElementById("legal-ai-summary-body");
         
@@ -943,7 +989,7 @@ document.addEventListener("DOMContentLoaded", () => {
             summaryCard.classList.remove("show");
         }
         
-        // Update Compensation Table Card
+        // Update Compensation Table Card (safe checking)
         const tableCard = document.getElementById("compensation-table-card");
         const tableBody = document.getElementById("compensation-table-body");
         

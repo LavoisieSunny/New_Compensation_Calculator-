@@ -576,6 +576,172 @@ def classify_page_fallback(page_text, section_name):
     return False
 
 
+def classify_page_type(page_text, page_number):
+    """
+    Indian MACT & High Court Appeal Page Layout Classifier.
+    Categorises a PDF page into:
+    - scrutiny report
+    - computer sheet
+    - award copy
+    - order sheet
+    - appeal memo
+    - chronology
+    - vakalatnama
+    - evidence
+    - tribunal judgment
+    - annexure
+    - handwritten note
+    """
+    text_lower = page_text.lower()
+    
+    # 1. Scrutiny Report
+    if any(w in text_lower for w in ["scrutiny report", "scrutiny sheet", "office report", "limitation period"]):
+        return "scrutiny report"
+        
+    # 2. Computer Sheet
+    if any(w in text_lower for w in ["computer sheet", "computer data sheet"]):
+        return "computer sheet"
+        
+    # 3. Vakalatnama
+    if any(w in text_lower for w in ["vakalatnama", "vakalath", "appoint", "power of attorney", "pleader"]):
+        return "vakalatnama"
+        
+    # 4. Chronology
+    if any(w in text_lower for w in ["chronology", "chronological", "date of accident", "date of award"]) and any(w in text_lower for w in ["events", "particulars"]):
+        return "chronology"
+        
+    # 5. Appeal Memo
+    if any(w in text_lower for w in ["memo of appeal", "miscellaneous appeal", "under section 173", "m.a. no."]):
+        return "appeal memo"
+        
+    # 6. Order Sheet
+    if any(w in text_lower for w in ["order sheet", "order-sheet", "proceeding"]):
+        return "order sheet"
+        
+    # 7. Award Copy / Compensation Table
+    if any(w in text_lower for w in ["loss of dependency", "multiplier", "funeral expenses", "loss of estate", "total compensation"]):
+        return "award copy"
+        
+    # 8. Evidence
+    if any(w in text_lower for w in ["deposition", "cross-examination", "examination-in-chief", "witness", "p.w.", "d.w."]):
+        return "evidence"
+        
+    # 9. Annexure
+    if any(w in text_lower for w in ["annexure", "exhibit", "certified copy", "fir copy", "post mortem"]):
+        return "annexure"
+        
+    # 10. Tribunal Judgment / General Judgment Text
+    if any(w in text_lower for w in ["judgment", "award", "tribunal", "claims tribunal"]):
+        return "tribunal judgment"
+        
+    # Default to handwritten note if text density is extremely sparse (signaling handwritten notes/stamps/scrawls)
+    clean_lines = [l for l in page_text.split("\n") if l.strip()]
+    if len(clean_lines) < 3 or (sum(len(l) for l in clean_lines) / max(len(clean_lines), 1)) < 15:
+        return "handwritten note"
+        
+    return "judgment text"
+
+
+def format_suggestions_for_calculator(suggestions):
+    """
+    Strict Indian MACT Calculator-Ready Structured Output Formatter.
+    Wraps all extracted parameters into the strict frontend UI target JSON schemas
+    with a confidence score engine block for each field.
+    DO NOT return unnecessary legal metadata.
+    """
+    case_type = suggestions.get("case_type", "death")
+    confidence_scores = suggestions.get("confidence_scores", {})
+
+    def get_field_obj(flat_key, default_val=""):
+        # Map some keys dynamically to match exact required UI schema keys
+        target_score_key = flat_key
+        if flat_key == "loss_of_consortium":
+            target_score_key = "consortium"
+        elif flat_key == "permanent_disability":
+            target_score_key = "disability"
+        elif flat_key == "injured_name":
+            target_score_key = "name"
+            
+        score_obj = confidence_scores.get(target_score_key)
+        
+        # Get raw value from suggestions flat structure first
+        # Fallback to key map, then confidence score value
+        raw_val = suggestions.get(flat_key)
+        if raw_val is None:
+            if flat_key == "loss_of_consortium":
+                raw_val = suggestions.get("consortium")
+            elif flat_key == "permanent_disability":
+                raw_val = suggestions.get("disability")
+            elif flat_key == "injured_name":
+                raw_val = suggestions.get("name") or suggestions.get("claimant_name")
+
+        if raw_val is None:
+            raw_val = default_val
+
+        # If a confidence object is present, use its metadata
+        if score_obj:
+            conf = score_obj.get("confidence", 0.5)
+            # Normalise to float confidence (e.g. 0.0 - 1.0)
+            if conf > 1.0:
+                conf = conf / 100.0
+            return {
+                "value": raw_val,
+                "confidence": round(conf, 2),
+                "source_page": str(score_obj.get("source_page", "1")),
+                "source_section": str(score_obj.get("source_section", "raw_ocr")),
+                "extraction_method": str(score_obj.get("extraction_method", "Contextual Heuristics"))
+            }
+        else:
+            # Fallback default dict
+            conf = 0.5 if raw_val != "" else 0.0
+            return {
+                "value": raw_val,
+                "confidence": conf,
+                "source_page": "1" if raw_val != "" else "",
+                "source_section": "raw_ocr" if raw_val != "" else "",
+                "extraction_method": "Default Heuristic" if raw_val != "" else ""
+            }
+
+    if case_type == "death":
+        return {
+            "case_type": case_type, # Keep as string for routing / selector matching
+            "deceased_name": get_field_obj("deceased_name"),
+            "father_name": get_field_obj("father_name"),
+            "date_of_accident": get_field_obj("date_of_accident"),
+            "date_of_birth": get_field_obj("date_of_birth"),
+            "place_of_accident": get_field_obj("place_of_accident"),
+            "age": get_field_obj("age"),
+            "marital_status": get_field_obj("marital_status"),
+            "monthly_income": get_field_obj("monthly_income"),
+            "future_prospect": get_field_obj("future_prospect"),
+            "loss_of_consortium": get_field_obj("loss_of_consortium"),
+            "loss_of_estate": get_field_obj("loss_estate"), # mapped to loss_estate in flat dict
+            "funeral_expenses": get_field_obj("funeral_expenses"),
+            "total_compensation": get_field_obj("total_compensation")
+        }
+    else: # injury case
+        return {
+            "case_type": case_type,
+            "injured_name": get_field_obj("injured_name"),
+            "father_name": get_field_obj("father_name"),
+            "date_of_accident": get_field_obj("date_of_accident"),
+            "date_of_birth": get_field_obj("date_of_birth"),
+            "place_of_accident": get_field_obj("place_of_accident"),
+            "age": get_field_obj("age"),
+            "monthly_income": get_field_obj("monthly_income"),
+            "dependents": get_field_obj("dependents"),
+            "permanent_disability": get_field_obj("permanent_disability"),
+            "medical_expenses": get_field_obj("medical_expenses"),
+            "pain_and_suffering": get_field_obj("pain_and_suffering"),
+            "transportation": get_field_obj("transportation"),
+            "special_diet": get_field_obj("special_diet"),
+            "attender_charges": get_field_obj("attender_charges"),
+            "future_medical_expenses": get_field_obj("future_medical_expenses"),
+            "loss_of_income": get_field_obj("loss_of_income"),
+            "total_compensation": get_field_obj("total_compensation")
+        }
+
+
 def detect_document_sections(full_text, pages):
     """
     Dynamically identifies sections of the document using semantic heading matching
@@ -2399,5 +2565,11 @@ def parse_extracted_text(text_lines):
             }
         }
     }
+
+    # Page classification audit trail
+    page_classifications = {}
+    for p in pages:
+        page_classifications[str(p["page_number"])] = classify_page_type(p["text"], p["page_number"])
+    parser_debug["page_classifications"] = page_classifications
 
     return suggestions

@@ -1090,6 +1090,10 @@ def run_background_pdf_indexing(file_id: str, temp_path: str, filename: str):
         logger.info(f"Indexing '{filename}' in Qdrant...")
         success = index_document(filename, text_lines, suggestions)
 
+        # Format suggestions into strict nested calculator format for frontend queue consumption
+        from backend.parser_heuristics import format_suggestions_for_calculator
+        formatted_suggestions = format_suggestions_for_calculator(suggestions)
+
         # 8. Cleanup
         if os.path.exists(temp_path):
             os.unlink(temp_path)
@@ -1097,7 +1101,7 @@ def run_background_pdf_indexing(file_id: str, temp_path: str, filename: str):
         if success:
             BATCH_QUEUE[file_id]["status"] = "indexed"
             BATCH_QUEUE[file_id]["progress"] = 100
-            BATCH_QUEUE[file_id]["suggestions"] = suggestions
+            BATCH_QUEUE[file_id]["suggestions"] = formatted_suggestions
             BATCH_QUEUE[file_id]["raw_text"] = text_lines
             BATCH_QUEUE[file_id]["ocr_debug"] = ocr_debug
             logger.info(f"Background task: '{filename}' indexed successfully!")
@@ -1197,13 +1201,17 @@ async def process_single_file(file: UploadFile = File(...)):
                 award_amount, age, marital_status, dependents, future_prospect, multiplier
             )
 
+        # Format suggestions into strict nested calculator format
+        from backend.parser_heuristics import format_suggestions_for_calculator
+        formatted_suggestions = format_suggestions_for_calculator(suggestions)
+
         os.unlink(temp_path)
         return {
             "success": True,
             "filename": file.filename,
             "ocr_status": "loaded",
             "fallback_source": fallback_source,
-            "suggestions": suggestions,
+            "suggestions": formatted_suggestions,
             "raw_text": text_lines,
             "ocr_debug": ocr_debug,
         }
