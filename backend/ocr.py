@@ -947,8 +947,22 @@ def extract_award_amount_from_text(text_lines: list) -> float:
             pre_ctx = full_text_lower[start_pos:match.start()]
             
             if any(kw in pre_ctx for kw in ["claim", "claiming", "sought", "demand", "demanded", "prayed", "prayer", "valuation"]):
-                logger.info(f"Skipping claimed amount Rs. {val:,.0f} from award candidate list due to claim context: '{pre_ctx.strip()}'")
-                continue
+                # Proximity override: if a positive keyword is closer to the match than the negative keyword, do not skip
+                neg_pos = -1
+                for kw in ["claim", "claiming", "sought", "demand", "demanded", "prayed", "prayer", "valuation"]:
+                    idx = pre_ctx.rfind(kw)
+                    if idx > neg_pos:
+                        neg_pos = idx
+                
+                pos_pos = -1
+                for kw in ["award", "awarded", "awarded sum", "amount awarded", "total compensation", "final award"]:
+                    idx = pre_ctx.rfind(kw)
+                    if idx > pos_pos:
+                        pos_pos = idx
+                        
+                if neg_pos > pos_pos:
+                    logger.info(f"Skipping claimed amount Rs. {val:,.0f} from award candidate list due to claim context: '{pre_ctx.strip()}'")
+                    continue
                 
             candidates.append(val)
             
