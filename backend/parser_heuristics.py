@@ -23,10 +23,13 @@ HEADING_KEYWORDS = {
         "vakalatnama", "vakalat", "power of attorney", "memo of appearance"
     ],
     "claimant_section": [
-        "claimants", "respondents", "legal representatives", "petitioners", "parties to the", "cause title", "party details"
+        "legal representatives", "parties to the", "cause title", "party details",
+        "details of claimants", "details of petitioners", "claimant details",
+        "petitioner details", "memo of parties"
     ],
     "accident_section": [
-        "accident", "manner of accident", "details of accident", "occurrence of accident", "date of accident"
+        "manner of accident", "details of accident", "occurrence of accident", "date of accident",
+        "particulars of accident"
     ],
     "compensation_section": [
         "compensation", "quantum", "assessment of compensation", "heads of claim", "calculation", "loss of dependency"
@@ -175,7 +178,8 @@ def clean_legal_name(name_str):
         "cited case", "vakalatnama", "scc", "acj",
         "insurance", "insur", "general", "company", "ltd", "limited", "corp", "corporation",
         "is assessed", "assessed at", "monthly income", "income is", "rs.", "rs ", "inr", "per month", "per annum",
-        "died in", "died on", "accident occurred", "occurred at", "took place", "working as", "employed as", "earning", "wages", "salary"
+        "died in", "died on", "accident occurred", "occurred at", "took place", "working as", "employed as", "earning", "wages", "salary",
+        "description", "particulars", "details of", "description of"
     ]
     name_lower = name_str.lower()
     if any(kw in name_lower for kw in IGNORE_KEYWORDS):
@@ -215,8 +219,8 @@ def clean_legal_name(name_str):
         name_str = re.sub(role_pat, '', name_str, flags=re.IGNORECASE).strip()
 
     # Strip whitespace and common noise characters
-    name_str = name_str.strip()
-    name_str = re.sub(r'^[\"\’\‘\“\”\s\.\,\-\/]+|[\"\’\‘\“\”\s\.\,\-\/]+$', '', name_str)
+    name_str = name_str.strip().replace("|", "")
+    name_str = re.sub(r'^[\"\’\‘\“\”\s\.\,\-\/\|]+|[\"\’\‘\“\”\s\.\,\-\/\|]+$', '', name_str)
     
     # Remove standard titles with case-insensitive word boundaries (optional dot included)
     prefixes = [r'\bshri\b\.?', r'\bsmt\b\.?', r'\bmr\b\.?', r'\bmrs\b\.?', r'\bkumari\b\.?', r'\blate\b\.?']
@@ -227,13 +231,13 @@ def clean_legal_name(name_str):
     name_str = re.sub(r'[\s,\-]+(?:s/o|d/o|w/o|son of|daughter of|wife of).*$', '', name_str, flags=re.IGNORECASE)
     
     # Strip leading/trailing punctuation noise once more after prefix removal
-    name_str = re.sub(r'^[\"\’\‘\“\”\s\.\,\-\/]+|[\"\’\‘\“\”\s\.\,\-\/]+$', '', name_str)
+    name_str = re.sub(r'^[\"\’\‘\“\”\s\.\,\-\/\|]+|[\"\’\‘\“\”\s\.\,\-\/\|]+$', '', name_str)
 
     # Normalize spaces
     name_str = re.sub(r'\s+', ' ', name_str).strip()
     
     # If the result is one of the legal roles themselves, or common particles, discard it
-    if name_str.lower() in ["appellant", "respondent", "versus", "vs", "petitioner", "claimant", "deceased", "injured", "the", "a", "an", "of", "and", "to", "in", "for", "with", "on", "at", "by", "from", "is", "was", "were", "be", "been", "has", "have", "had", "are", "this", "that"]:
+    if name_str.lower() in ["appellant", "respondent", "versus", "vs", "petitioner", "claimant", "deceased", "injured", "name", "father", "husband", "wife", "son", "daughter", "the", "a", "an", "of", "and", "to", "in", "for", "with", "on", "at", "by", "from", "is", "was", "were", "be", "been", "has", "have", "had", "are", "this", "that"]:
         return ""
         
     if len(name_str) < 3:
@@ -262,6 +266,16 @@ def extract_relationship_entities(text):
         if m:
             c_part = m.group(1).strip()
             f_part = m.group(2).strip()
+            
+            # Take only the last non-empty line of c_part to prevent leaking preceding lines/headings
+            c_part_lines = [l.strip() for l in c_part.split('\n') if l.strip()]
+            if c_part_lines:
+                c_part = c_part_lines[-1]
+                
+            # Take only the first non-empty line of f_part to prevent leaking subsequent lines
+            f_part_lines = [l.strip() for l in f_part.split('\n') if l.strip()]
+            if f_part_lines:
+                f_part = f_part_lines[0]
             
             # Strip typical claimant/petitioner label prefixes from the claimant part
             c_part = re.sub(r'^(?:the\s+)?(?:claimant\s+name|petitioner\s+name|name\s+of\s+injured|name\s+of\s+claimant|name\s+of\s+victim|claimant|petitioner|victim|injured|name)\s*[:\-–\s]+', '', c_part, flags=re.IGNORECASE)
@@ -665,6 +679,20 @@ def parse_chronological_events(text):
     return events
 
 
+def extract_last_currency_value(line_lower):
+    """
+    Extracts the last numeric value on the line that looks like a currency amount.
+    Handles multiple values on a single line (like formula multipliers).
+    """
+    matches = re.findall(r'(?:rs\.?|inr|rupees)?\s*([\d,]{4,12}(?:\.\d+)?)\s*(?:rs\.?|inr|rupees|\/\-)?', line_lower)
+    if matches:
+        for m_val in reversed(matches):
+            val = parse_indian_rupee_value(m_val)
+            if val > 0:
+                return val
+    return 0.0
+
+
 def extract_compensation_table_fields(section_content):
     """
     Extracts structured compensation fields strictly from the isolated compensation table area.
@@ -680,39 +708,16 @@ def extract_compensation_table_fields(section_content):
         "total_compensation": None
     }
     
+    if not section_content:
+        return fields
+        
     lines = section_content.split("\n")
-    table_lines = []
-    in_table = False
-    consecutive_non_table = 0
-    
-    table_kws = ["dependency", "consortium", "funeral", "estate", "pain", "medical", "transport", "nourishment", "attender", "disability", "amenities", "earning", "multiplier", "prospects", "deduction", "income", "salary", "total", "awarded"]
-    
     for line in lines:
-        line_lower = line.lower()
-        has_kw = any(kw in line_lower for kw in table_kws)
-        has_digits = bool(re.search(r'\d', line))
-        
-        if has_kw and has_digits:
-            in_table = True
-            table_lines.append(line)
-            consecutive_non_table = 0
-        elif in_table:
-            consecutive_non_table += 1
-            if consecutive_non_table > 2:
-                if "total" in line_lower:
-                    table_lines.append(line)
-                break
-            else:
-                table_lines.append(line)
-                
-    for line in table_lines:
-        line_lower = line.lower()
-        
-        # Isolate the currency value part (e.g. "Rs. 12,00,000/-") to avoid serial prefix mixup
-        val = 0.0
-        val_match = re.search(r'(?:rs\.?|inr|rupees)?\s*([\d,]{4,12}(?:\.\d+)?)\s*(?:rs\.?|inr|rupees|\/\-)?', line_lower)
-        if val_match:
-            val = parse_indian_rupee_value(val_match.group(1))
+        line_lower = line.strip().lower()
+        if not line_lower:
+            continue
+            
+        val = extract_last_currency_value(line_lower)
         
         mult_match = re.search(r'\bmultiplier\b.*?\b(\d{1,2})\b', line_lower)
         if mult_match:
@@ -727,16 +732,18 @@ def extract_compensation_table_fields(section_content):
             fields["deduction"] = float(ded_pct_match.group(1))
             
         if val > 0:
-            if "monthly" in line_lower and ("income" in line_lower or "salary" in line_lower or "earnings" in line_lower):
+            if "monthly" in line_lower and any(kw in line_lower for kw in ["income", "salary", "earnings", "wage"]):
                 fields["monthly_income"] = val
-            elif "loss of dependency" in line_lower or "annual loss" in line_lower:
+            elif any(kw in line_lower for kw in ["loss of dependency", "annual loss", "dependency"]):
                 fields["annual_loss_dependency"] = val
-            elif "funeral" in line_lower:
+            elif any(kw in line_lower for kw in ["funeral", "last rites", "last rituals"]):
                 fields["funeral_expenses"] = val
-            elif "consortium" in line_lower:
+            elif any(kw in line_lower for kw in ["consortium", "cohabitation"]):
                 fields["consortium"] = val
             elif "total" in line_lower:
-                fields["total_compensation"] = val
+                # Do not match the claimed amount as total compensation
+                if not any(kw in line_lower for kw in ["claim", "petition", "sought", "prayed", "valuation"]):
+                    fields["total_compensation"] = val
                 
     return fields
 
@@ -768,8 +775,13 @@ def contextual_extract(patterns, sections, priority_list, type_cast=str, default
             continue
             
         for pat in patterns:
-            m = re.search(pat, text, re.IGNORECASE)
-            if m:
+            for m in re.finditer(pat, text, re.IGNORECASE):
+                if field_name == "total_compensation":
+                    # Suppress matching claimed/prayer amounts as total compensation
+                    start_pos = max(0, m.start() - 50)
+                    pre_ctx = text[start_pos:m.start()].lower()
+                    if any(kw in pre_ctx for kw in ["claim", "claiming", "sought", "demand", "demanded", "prayed", "prayer", "valuation"]):
+                        continue
                 matched_source = m.group(0)
                 raw_val = m.group(1).strip()
                 
@@ -931,6 +943,73 @@ def extract_dates_with_context(text):
     return matches
 
 
+def deduce_notional_income(award_amount, age, marital_status, dependents, future_prospect=None, multiplier=None):
+    """
+    Algebraically deduces a clean monthly notional income from the award_amount using standard legal formulas.
+    Used when explicit monthly income is missing in the judgment text.
+    """
+    if not award_amount or award_amount <= 0:
+        return 5000.0 # standard fallback
+        
+    # Standard conventional heads: Consortium (40k), Funeral (15k), Estate (15k)
+    conventional_heads = 40000.0 + 15000.0 + 15000.0
+    
+    # Estimate loss of dependency
+    loss_of_dependency = max(0.0, award_amount - conventional_heads)
+    if loss_of_dependency <= 0:
+        return 3000.0 if award_amount < 100000 else 5000.0
+        
+    # Multiplier
+    if not multiplier:
+        age_int = int(age) if (isinstance(age, int) or (isinstance(age, str) and age.isdigit())) else 30
+        if age_int <= 15: expected_multiplier = 20
+        elif age_int <= 25: expected_multiplier = 18
+        elif age_int <= 30: expected_multiplier = 17
+        elif age_int <= 35: expected_multiplier = 16
+        elif age_int <= 40: expected_multiplier = 15
+        elif age_int <= 45: expected_multiplier = 14
+        elif age_int <= 50: expected_multiplier = 13
+        elif age_int <= 55: expected_multiplier = 11
+        elif age_int <= 60: expected_multiplier = 9
+        elif age_int <= 65: expected_multiplier = 7
+        else: expected_multiplier = 5
+        multiplier = expected_multiplier
+        
+    # Deduction
+    dep_cnt = int(dependents) if (isinstance(dependents, int) or (isinstance(dependents, str) and dependents.isdigit())) else 3
+    if marital_status == "single" or dep_cnt <= 1:
+        deduct_pct = 0.50
+    elif dep_cnt <= 3:
+        deduct_pct = 1.0 / 3.0
+    elif dep_cnt <= 6:
+        deduct_pct = 0.25
+    else:
+        deduct_pct = 0.20
+        
+    # Prospects
+    if future_prospect is None or future_prospect == "":
+        age_int = int(age) if (isinstance(age, int) or (isinstance(age, str) and age.isdigit())) else 30
+        if age_int < 40: expected_prospects = 40.0
+        elif age_int < 50: expected_prospects = 25.0
+        elif age_int < 60: expected_prospects = 10.0
+        else: expected_prospects = 0.0
+        future_prospect = expected_prospects
+        
+    # Reconstruct monthly income
+    # loss_of_dependency = (monthly_income * 12 * (1 + prospects/100) * (1 - deduct_pct)) * multiplier
+    denominator = 12.0 * (1.0 + float(future_prospect) / 100.0) * (1.0 - deduct_pct) * multiplier
+    if denominator > 0:
+        monthly_income = loss_of_dependency / denominator
+        if monthly_income > 0:
+            # Round to nearest 500 for legal consistency
+            rounded = round(monthly_income / 500.0) * 500.0
+            if abs(rounded - monthly_income) < 400:
+                return float(rounded)
+            return round(monthly_income, 2)
+            
+    return 5000.0
+
+
 def parse_extracted_text(text_lines):
     """
     Highly advanced Section-Aware Legal Semantic Parser / Legal Document Intelligence Engine.
@@ -1083,10 +1162,10 @@ def parse_extracted_text(text_lines):
         r'\b(?:name\s+of\s+)deceased\b\s*[:\-]\s*(.*)',
         r'^(?:\d+[\.\)\-]\s*)?\bdeath\s+of\s+(.*)',
         r'\blate\b\s*(?:shri|smt)?\s*(.*)',
-        r'\b([A-Z][a-zA-Z \t]+)\s*(?:\(deceased\)|deceased)\b',
-        r'\b(?:deceased)\s+([A-Z][a-zA-Z \t]+)\b',
-        r'\bdeath\s+of\s+(?:shri|smt|late)?\s*([A-Z][a-zA-Z \t]+)\b',
-        r'\b([A-Z][a-zA-Z \t]+)\s*(?:died|expired)\b'
+        r'\b([A-Z][a-zA-Z \t]+)[ \t]*(?:\(deceased\)|deceased)\b',
+        r'\b(?:deceased)[ \t]+([A-Z][a-zA-Z \t]+)\b',
+        r'\bdeath[ \t]+of[ \t]+(?:shri|smt|late)?[ \t]*([A-Z][a-zA-Z \t]+)\b',
+        r'\b([A-Z][a-zA-Z \t]+)[ \t]*(?:died|expired)\b'
     ]
     deceased_name, conf_deceased_name, sec_deceased_name, page_deceased_name = contextual_extract(
         dec_patterns, sections, [("claimant_section", 90), ("memo_of_appeal_section", 80)], type_cast=str,
@@ -1144,12 +1223,7 @@ def parse_extracted_text(text_lines):
 
     # Splitting Claimant Inline Relationship
     source_line = sections.get("claimant_section", "")
-    split_res = None
-    for line in source_line.split("\n"):
-        if any(re.search(pat, line, re.IGNORECASE) for pat in [r'\b(?:s[\./\s]*o|son\s+of)\b', r'\b(?:d[\./\s]*o|daughter\s+of)\b', r'\b(?:w[\./\s]*o|wife\s+of)\b']):
-            split_res = extract_relationship_entities(line)
-            if split_res:
-                break
+    split_res = extract_relationship_entities(source_line)
     if split_res:
         c_split, rel_type, f_split = split_res
         if c_split:
@@ -1396,8 +1470,8 @@ def parse_extracted_text(text_lines):
         method_total_compensation = "Compensation Table Extraction"
     else:
         award_patterns = [
-            r'(?:awarded|compensation\s+of\s+rs\.?|tribunal\s+awards|granted\s+compensation\s+of\s+rs\.?)\s*([\d,\.\s]+lakhs?|[\d,\.\-\/]+)\b',
-            r'\b(?:awarded\s+sum\s+of|compensation\s+amount\s+of|total\s+compensation\s+of)\s*(?:rs\.?|inr)?\s*([\d,\.\-\/]+)\b'
+            r'\b(?:total\s+)?(?:awarded|compensation|award|sum)\s*(?:amount|sum)?\s*(?:of|is|was|amounting\s+to|by\s+the\s+tribunal|by\s+tribunal)?\s*(?:rs\.?|inr|rupees)?\s*([\d,\.\s]+lakhs?|[\d,\.\-\/]+)\b',
+            r'\b(?:total\s+compensation\s+of|compensation\s+amount\s+of)\s*(?:rs\.?|inr|rupees)?\s*([\d,\.\-\/]+)\b'
         ]
         total_compensation, conf_total_compensation, sec_total_compensation, page_total_compensation = contextual_extract(
             award_patterns, sections, [("compensation_section", 95), ("award_copy_section", 90)], default_val="", type_cast=float,
@@ -1765,6 +1839,21 @@ def parse_extracted_text(text_lines):
                 sec_monthly_income = "petition_block"
                 page_monthly_income = 1
                 method_monthly_income = "Regex Local Income Fallback"
+
+        if (not monthly_income or monthly_income <= 0) and total_compensation and total_compensation > 0:
+            monthly_income = deduce_notional_income(
+                total_compensation, 
+                age, 
+                marital_status, 
+                dependents, 
+                future_prospect, 
+                multiplier
+            )
+            if monthly_income > 0:
+                conf_monthly_income = 0.80
+                sec_monthly_income = "algebraic_fallback"
+                page_monthly_income = 1
+                method_monthly_income = "Algebraic Notional Income Deduction"
 
         if not multiplier and expected_multiplier:
             multiplier = expected_multiplier
