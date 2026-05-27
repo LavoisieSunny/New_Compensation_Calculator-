@@ -35,6 +35,18 @@ class CompensationRequest(BaseModel):
 
     loss_estate: float = 15000
 
+    # Consortium Breakdown Subheadings (from PHP claim calculator)
+    conlum: float = 0
+    conspo: float = 0
+    conpar: float = 0
+    conchil: float = 0
+    conwif: float = 0
+    conmo: float = 0
+    confath: float = 0
+    conhus: float = 0
+    conbro: float = 0
+    consis: float = 0
+
     # ==================================================
     # INJURY CASE
     # ==================================================
@@ -55,6 +67,15 @@ class CompensationRequest(BaseModel):
 
     loss_of_income: float = 0
 
+    # Additional pecuniary/non-pecuniary heads (from PHP claim calculator)
+    coliti: float = 0
+    misex: float = 0
+    loamiti: float = 0
+    lopmarri: float = 0
+    loexlife: float = 0
+    loveaff: float = 0
+    lossofenjoy: float = 0
+
 
 # ======================================================
 # SARLA VERMA MULTIPLIER
@@ -63,7 +84,7 @@ class CompensationRequest(BaseModel):
 def get_multiplier(age: int):
 
     if age <= 15:
-        return 20
+        return 15  # Corrected to match MPHC PHP formula exactly
 
     elif age <= 20:
         return 18
@@ -220,7 +241,27 @@ def calculate_death_compensation(
 
         data.funeral_expenses +
 
-        data.loss_estate
+        data.loss_estate +
+
+        data.conlum +
+
+        data.conspo +
+
+        data.conpar +
+
+        data.conchil +
+
+        data.conwif +
+
+        data.conmo +
+
+        data.confath +
+
+        data.conhus +
+
+        data.conbro +
+
+        data.consis
     )
 
     return {
@@ -268,6 +309,17 @@ def calculate_death_compensation(
 
         "loss_estate":
             data.loss_estate,
+
+        "conlum": data.conlum,
+        "conspo": data.conspo,
+        "conpar": data.conpar,
+        "conchil": data.conchil,
+        "conwif": data.conwif,
+        "conmo": data.conmo,
+        "confath": data.confath,
+        "conhus": data.conhus,
+        "conbro": data.conbro,
+        "consis": data.consis,
 
         "final_amount":
             round(
@@ -319,7 +371,21 @@ def calculate_injury_compensation(
 
         data.attender_charges +
 
-        data.loss_of_income
+        data.loss_of_income +
+
+        data.coliti +
+
+        data.misex +
+
+        data.loamiti +
+
+        data.lopmarri +
+
+        data.loexlife +
+
+        data.loveaff +
+
+        data.lossofenjoy
     )
 
     return {
@@ -359,6 +425,14 @@ def calculate_injury_compensation(
 
         "loss_of_income":
             data.loss_of_income,
+
+        "coliti": data.coliti,
+        "misex": data.misex,
+        "loamiti": data.loamiti,
+        "lopmarri": data.lopmarri,
+        "loexlife": data.loexlife,
+        "loveaff": data.loveaff,
+        "lossofenjoy": data.lossofenjoy,
 
         "final_amount":
             round(

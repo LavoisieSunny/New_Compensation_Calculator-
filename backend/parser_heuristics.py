@@ -383,7 +383,7 @@ def parse_compensation_table(text):
     table = {}
     lines = text.split("\n")
     
-    valid_heads = ["dependency", "consortium", "funeral", "estate", "pain", "medical", "transport", "nourishment", "attender", "disability", "amenities", "earning", "structure"]
+    valid_heads = ["dependency", "consortium", "funeral", "estate", "pain", "medical", "transport", "nourishment", "attender", "disability", "amenities", "earning", "structure", "litigation", "miscellaneous", "marriage", "expectation", "love", "enjoyment", "lumpsum", "spouse", "parental", "children", "wife", "mother", "father", "husband", "brother", "sister"]
     pattern = r'(?:\d+[\.\)\-]\s*)?([A-Za-z\s&\(\)/\-\’\‘\“\”]+)\s*(?:[:\-–]|\b\.?\s*rs\.?\b)\s*(?:rs\.?|inr)?\s*([\d,\.\s]+lakhs?|[\d,\.\-\/]+)\b'
     
     for line in lines:
@@ -1884,8 +1884,30 @@ def parse_extracted_text(text_lines):
         return None
 
     # Map table/heuristic values to flat fields
+    # Map table/heuristic values to flat fields
     loss_estate_val = get_table_value(["estate"]) or estate_loss or 15000.0
     
+    # Granular consortium extraction
+    extracted_conlum = get_table_value(["consortium-lumpsum", "lumpsum consortium", "consortium lumpsum"])
+    extracted_conspo = get_table_value(["consortium-spouse", "spouse consortium", "consortium spouse", "consortium to spouse"])
+    extracted_conpar = get_table_value(["consortium-parental", "parental consortium", "consortium parental", "parental"])
+    extracted_conchil = get_table_value(["consortium-children", "children consortium", "consortium children"])
+    extracted_conwif = get_table_value(["consortium-wife", "wife consortium", "consortium wife"])
+    extracted_conmo = get_table_value(["consortium-mother", "mother consortium", "consortium mother"])
+    extracted_confath = get_table_value(["consortium-father", "father consortium", "consortium father"])
+    extracted_conhus = get_table_value(["consortium-husband", "husband consortium", "consortium husband"])
+    extracted_conbro = get_table_value(["consortium-brother", "brother consortium", "consortium brother"])
+    extracted_consis = get_table_value(["consortium-sister", "sister consortium", "consortium sister"])
+
+    # Granular injury extraction
+    extracted_coliti = get_table_value(["cost of litigation", "litigation cost", "litigation expense", "litigation"])
+    extracted_misex = get_table_value(["miscellaneous expenditure", "miscellaneous expense", "miscellaneous"])
+    extracted_loamiti = get_table_value(["loss of amenities", "loss of amenity", "amenities in life", "amenities"])
+    extracted_lopmarri = get_table_value(["prospects of marriage", "prospect of marriage", "marriage prospects", "marriage"])
+    extracted_loexlife = get_table_value(["expectation of life", "loss of expectation", "expectation"])
+    extracted_loveaff = get_table_value(["love and affection", "love & affection"])
+    extracted_lossofenjoy = get_table_value(["enjoyment of life", "loss of enjoyment"])
+
     extracted_future_medical = get_table_value(["future medical"])
     extracted_medical = None
     for t_key, t_val in compensation_table.items():
@@ -1928,6 +1950,25 @@ def parse_extracted_text(text_lines):
         "citations": citations,
         
         "loss_estate": loss_estate_val,
+        "conlum": extracted_conlum,
+        "conspo": extracted_conspo,
+        "conpar": extracted_conpar,
+        "conchil": extracted_conchil,
+        "conwif": extracted_conwif,
+        "conmo": extracted_conmo,
+        "confath": extracted_confath,
+        "conhus": extracted_conhus,
+        "conbro": extracted_conbro,
+        "consis": extracted_consis,
+
+        "coliti": extracted_coliti,
+        "misex": extracted_misex,
+        "loamiti": extracted_loamiti,
+        "lopmarri": extracted_lopmarri,
+        "loexlife": extracted_loexlife,
+        "loveaff": extracted_loveaff,
+        "lossofenjoy": extracted_lossofenjoy,
+
         "medical_expenses": extracted_medical,
         "future_medical_expenses": extracted_future_medical,
         "pain_and_suffering": extracted_pain,

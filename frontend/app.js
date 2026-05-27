@@ -217,7 +217,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function getMultiplier(age) {
         if (age === null || age === undefined) return "-";
-        if (age <= 15) return 20;
+        if (age <= 15) return 15; // Corrected to match MPHC PHP formula exactly
         else if (age <= 25) return 18;
         else if (age <= 30) return 17;
         else if (age <= 35) return 16;
@@ -688,6 +688,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const standardKeys = [
             "name", "father_name", "dependents", "marital_status", "monthly_income", "disability", "place_of_accident",
             "consortium", "funeral_expenses", "loss_estate",
+            "conlum", "conspo", "conpar", "conchil", "conwif", "conmo", "confath", "conhus", "conbro", "consis",
+            "coliti", "misex", "loamiti", "lopmarri", "loexlife", "loveaff", "lossofenjoy",
             "medical_expenses", "future_medical_expenses", "pain_and_suffering", "transportation", "special_diet", "attender_charges", "loss_of_income"
         ];
         standardKeys.forEach(key => {
@@ -1222,6 +1224,18 @@ document.addEventListener("DOMContentLoaded", () => {
             consortium: parseFloat(document.getElementById("consortium").value) || 40000,
             funeral_expenses: parseFloat(document.getElementById("funeral_expenses").value) || 15000,
             loss_estate: parseFloat(document.getElementById("loss_estate").value) || 15000,
+
+            // Consortium breakdown
+            conlum: parseFloat(document.getElementById("conlum").value) || 0,
+            conspo: parseFloat(document.getElementById("conspo").value) || 0,
+            conpar: parseFloat(document.getElementById("conpar").value) || 0,
+            conchil: parseFloat(document.getElementById("conchil").value) || 0,
+            conwif: parseFloat(document.getElementById("conwif").value) || 0,
+            conmo: parseFloat(document.getElementById("conmo").value) || 0,
+            confath: parseFloat(document.getElementById("confath").value) || 0,
+            conhus: parseFloat(document.getElementById("conhus").value) || 0,
+            conbro: parseFloat(document.getElementById("conbro").value) || 0,
+            consis: parseFloat(document.getElementById("consis").value) || 0,
             
             disability: parseFloat(document.getElementById("disability").value) || 0,
             medical_expenses: parseFloat(document.getElementById("medical_expenses").value) || 0,
@@ -1230,7 +1244,16 @@ document.addEventListener("DOMContentLoaded", () => {
             transportation: parseFloat(document.getElementById("transportation").value) || 0,
             special_diet: parseFloat(document.getElementById("special_diet").value) || 0,
             attender_charges: parseFloat(document.getElementById("attender_charges").value) || 0,
-            loss_of_income: parseFloat(document.getElementById("loss_of_income").value) || 0
+            loss_of_income: parseFloat(document.getElementById("loss_of_income").value) || 0,
+
+            // Extra Injury heads
+            coliti: parseFloat(document.getElementById("coliti").value) || 0,
+            misex: parseFloat(document.getElementById("misex").value) || 0,
+            loamiti: parseFloat(document.getElementById("loamiti").value) || 0,
+            lopmarri: parseFloat(document.getElementById("lopmarri").value) || 0,
+            loexlife: parseFloat(document.getElementById("loexlife").value) || 0,
+            loveaff: parseFloat(document.getElementById("loveaff").value) || 0,
+            lossofenjoy: parseFloat(document.getElementById("lossofenjoy").value) || 0
         };
 
         try {
@@ -1276,7 +1299,9 @@ document.addEventListener("DOMContentLoaded", () => {
             const deductionPercent = getDeductionPercentage(data.dependents, data.marital_status) / 100;
             const familyContribution = enhancedAnnual * (1 - deductionPercent);
             const lossDependency = familyContribution * multiplier;
-            const finalAmount = lossDependency + data.consortium + data.funeral_expenses + data.loss_estate;
+            const finalAmount = lossDependency + data.consortium + data.funeral_expenses + data.loss_estate +
+                (data.conlum || 0) + (data.conspo || 0) + (data.conpar || 0) + (data.conchil || 0) + (data.conwif || 0) +
+                (data.conmo || 0) + (data.confath || 0) + (data.conhus || 0) + (data.conbro || 0) + (data.consis || 0);
 
             return {
                 case_type: "death",
@@ -1290,12 +1315,24 @@ document.addEventListener("DOMContentLoaded", () => {
                 consortium: data.consortium,
                 funeral_expenses: data.funeral_expenses,
                 loss_estate: data.loss_estate,
+                conlum: data.conlum || 0,
+                conspo: data.conspo || 0,
+                conpar: data.conpar || 0,
+                conchil: data.conchil || 0,
+                conwif: data.conwif || 0,
+                conmo: data.conmo || 0,
+                confath: data.confath || 0,
+                conhus: data.conhus || 0,
+                conbro: data.conbro || 0,
+                consis: data.consis || 0,
                 final_amount: Math.round(finalAmount)
             };
         } else {
             const futureLoss = annual * (data.disability / 100) * multiplier;
             const finalAmount = futureLoss + data.medical_expenses + data.future_medical_expenses + 
-                data.pain_and_suffering + data.transportation + data.special_diet + data.attender_charges + data.loss_of_income;
+                data.pain_and_suffering + data.transportation + data.special_diet + data.attender_charges + data.loss_of_income +
+                (data.coliti || 0) + (data.misex || 0) + (data.loamiti || 0) + (data.lopmarri || 0) + (data.loexlife || 0) + 
+                (data.loveaff || 0) + (data.lossofenjoy || 0);
             
             return {
                 case_type: "injury",
@@ -1309,6 +1346,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 special_diet: data.special_diet,
                 attender_charges: data.attender_charges,
                 loss_of_income: data.loss_of_income,
+                coliti: data.coliti || 0,
+                misex: data.misex || 0,
+                loamiti: data.loamiti || 0,
+                lopmarri: data.lopmarri || 0,
+                loexlife: data.loexlife || 0,
+                loveaff: data.loveaff || 0,
+                lossofenjoy: data.lossofenjoy || 0,
                 final_amount: Math.round(finalAmount)
             };
         }
@@ -1360,19 +1404,24 @@ document.addEventListener("DOMContentLoaded", () => {
                 </div>
                 <div class="detail-tile">
                     <span class="tile-label">Conventional Awards</span>
-                    <span class="tile-value">${formatCurrency(res.consortium + res.funeral_expenses + res.loss_estate)}</span>
-                    <span class="tile-desc">Consortium (40k), Funeral (15k), Estate (15k)</span>
+                    <span class="tile-value">${formatCurrency(res.consortium + res.funeral_expenses + res.loss_estate + (res.conlum || 0) + (res.conspo || 0) + (res.conpar || 0) + (res.conchil || 0) + (res.conwif || 0) + (res.conmo || 0) + (res.confath || 0) + (res.conhus || 0) + (res.conbro || 0) + (res.consis || 0))}</span>
+                    <span class="tile-desc">Consortium, Funeral, Estate, and Consortium Breakdown subheads</span>
                 </div>
             `;
+
+            const sumConsortium = (res.conlum || 0) + (res.conspo || 0) + (res.conpar || 0) + (res.conchil || 0) + (res.conwif || 0) + (res.conmo || 0) + (res.confath || 0) + (res.conhus || 0) + (res.conbro || 0) + (res.consis || 0);
 
             mathFormulaHtml = `
                 <div class="formula-title"><i class="fa-solid fa-square-root-variable"></i> Death Compensation Equation</div>
                 <div class="formula-content">
-                    Total Compensation = (Loss of Dependency) + (Loss of Consortium) + (Funeral Expenses) + (Loss of Estate)<br>
-                    = (Enhanced Annual Income &times; [1 - Deduction %] &times; Multiplier) + Consortium + Funeral + Estate<br>
-                    = (${formatCurrency(res.annual_income)} &times; ${1 - res.deduction_percentage/100} &times; ${res.multiplier}) + ${formatCurrency(res.consortium)} + ${formatCurrency(res.funeral_expenses)} + ${formatCurrency(res.loss_estate)}<br>
-                    = ${formatCurrency(res.loss_dependency)} + ${formatCurrency(res.consortium)} + ${formatCurrency(res.funeral_expenses)} + ${formatCurrency(res.loss_estate)}<br>
+                    Total Compensation = (Loss of Dependency) + (Consortium) + (Funeral Expenses) + (Loss of Estate) + (Consortium Breakdowns)<br>
+                    = (Enhanced Annual Income &times; [1 - Deduction %] &times; Multiplier) + Consortium + Funeral + Estate + Breakdowns<br>
+                    = (${formatCurrency(res.annual_income)} &times; ${1 - res.deduction_percentage/100} &times; ${res.multiplier}) + ${formatCurrency(res.consortium)} + ${formatCurrency(res.funeral_expenses)} + ${formatCurrency(res.loss_estate)} + ${formatCurrency(sumConsortium)}<br>
+                    = ${formatCurrency(res.loss_dependency)} + ${formatCurrency(res.consortium + res.funeral_expenses + res.loss_estate + sumConsortium)}<br>
                     = <strong>${formatCurrency(res.final_amount)}</strong>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 8px; font-weight: 500;">
+                        * Note: Conventional expenses enhanced @10% in every three years (base year 2017). Interest @6% applies from the date of the Petition till the date of payment.
+                    </div>
                 </div>
             `;
         } else {
@@ -1400,19 +1449,24 @@ document.addEventListener("DOMContentLoaded", () => {
                     <span class="tile-value">${formatCurrency(res.pain_and_suffering)}</span>
                 </div>
                 <div class="detail-tile">
-                    <span class="tile-label">Supportive Allowances</span>
-                    <span class="tile-value">${formatCurrency(res.transportation + res.special_diet + res.attender_charges + res.loss_of_income)}</span>
-                    <span class="tile-desc">Diet, Attender, Transport & Loss of Income during treatment</span>
+                    <span class="tile-label">Supportive & Extra Allowances</span>
+                    <span class="tile-value">${formatCurrency(res.transportation + res.special_diet + res.attender_charges + res.loss_of_income + (res.coliti || 0) + (res.misex || 0) + (res.loamiti || 0) + (res.lopmarri || 0) + (res.loexlife || 0) + (res.loveaff || 0) + (res.lossofenjoy || 0))}</span>
+                    <span class="tile-desc">Diet, Attender, Transport, Litigation, Amenities, Marriage Loss, etc.</span>
                 </div>
             `;
+
+            const sumExtraInjury = (res.coliti || 0) + (res.misex || 0) + (res.loamiti || 0) + (res.lopmarri || 0) + (res.loexlife || 0) + (res.loveaff || 0) + (res.lossofenjoy || 0);
 
             mathFormulaHtml = `
                 <div class="formula-title"><i class="fa-solid fa-square-root-variable"></i> Injury Compensation Equation</div>
                 <div class="formula-content">
-                    Total Compensation = (Future Income Loss) + Medical Expenses + Future Medicals + Pain/Suffering + Transport + Special Diet + Attender + Loss during Treatment<br>
-                    = (${formatCurrency(res.annual_income)} &times; ${req.disability}% &times; ${res.multiplier}) + ${formatCurrency(res.medical_expenses)} + ${formatCurrency(res.future_medical_expenses)} + ${formatCurrency(res.pain_and_suffering)} + ${formatCurrency(res.transportation + res.special_diet + res.attender_charges + res.loss_of_income)}<br>
-                    = ${formatCurrency(res.future_income_loss)} + ${formatCurrency(res.medical_expenses + res.future_medical_expenses + res.pain_and_suffering + res.transportation + res.special_diet + res.attender_charges + res.loss_of_income)}<br>
+                    Total Compensation = (Future Income Loss) + Medical Expenses + Future Medicals + Pain/Suffering + Transport + Special Diet + Attender + Loss during Treatment + Extra Award Heads<br>
+                    = (${formatCurrency(res.annual_income)} &times; ${req.disability}% &times; ${res.multiplier}) + ${formatCurrency(res.medical_expenses)} + ${formatCurrency(res.future_medical_expenses)} + ${formatCurrency(res.pain_and_suffering)} + ${formatCurrency(res.transportation + res.special_diet + res.attender_charges + res.loss_of_income + sumExtraInjury)}<br>
+                    = ${formatCurrency(res.future_income_loss)} + ${formatCurrency(res.medical_expenses + res.future_medical_expenses + res.pain_and_suffering + res.transportation + res.special_diet + res.attender_charges + res.loss_of_income + sumExtraInjury)}<br>
                     = <strong>${formatCurrency(res.final_amount)}</strong>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 8px; font-weight: 500;">
+                        * Note: Expenses enhanced @10% in every three years (base year 2017). Interest @6% applies from the date of the Petition till the date of payment.
+                    </div>
                 </div>
             `;
         }

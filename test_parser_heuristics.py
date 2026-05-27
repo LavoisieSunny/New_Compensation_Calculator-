@@ -234,6 +234,46 @@ class TestParserHeuristics(unittest.TestCase):
         self.assertEqual(suggestions["loss_of_income"], 30000.0)
         self.assertEqual(suggestions["future_medical_expenses"], 20000.0)
 
+    def test_parse_extracted_text_new_mphc_fields(self):
+        """Verify that the parser correctly extracts new MPHC-specific consortium and extra injury fields."""
+        ocr_lines_death = [
+            "--- PAGE 1 ---",
+            "CLAIM PETITION BEFORE THE TRIBUNAL",
+            "Deceased: Late Shri Suresh Kumar",
+            "--- PAGE 2 ---",
+            "COMPENSATION AWARD COPY",
+            "We award the following conventional amounts:",
+            "1. Consortium-spouse: Rs. 40,000/-",
+            "2. Consortium-parental: Rs. 40,000/-",
+            "3. Consortium-children: Rs. 80,000/-",
+            "4. Loss of Estate: Rs. 15,000/-",
+            "5. Funeral Expenses: Rs. 15,000/-"
+        ]
+        suggestions_death = parse_extracted_text(ocr_lines_death)
+        self.assertEqual(suggestions_death["conspo"], 40000.0)
+        self.assertEqual(suggestions_death["conpar"], 40000.0)
+        self.assertEqual(suggestions_death["conchil"], 80000.0)
+
+        ocr_lines_injury = [
+            "--- PAGE 1 ---",
+            "CLAIM PETITION BEFORE THE TRIBUNAL",
+            "Claimants: Shri Rajesh Kumar",
+            "--- PAGE 2 ---",
+            "COMPENSATION AWARD COPY",
+            "We award the following injury parameters:",
+            "1. Cost of Litigation: Rs. 5,000/-",
+            "2. Miscellaneous Expenditure: Rs. 10,000/-",
+            "3. Loss of Amenities: Rs. 20,000/-",
+            "4. Love and Affection: Rs. 15,000/-",
+            "5. Loss of Enjoyment of life: Rs. 25,000/-"
+        ]
+        suggestions_injury = parse_extracted_text(ocr_lines_injury)
+        self.assertEqual(suggestions_injury["coliti"], 5000.0)
+        self.assertEqual(suggestions_injury["misex"], 10000.0)
+        self.assertEqual(suggestions_injury["loamiti"], 20000.0)
+        self.assertEqual(suggestions_injury["loveaff"], 15000.0)
+        self.assertEqual(suggestions_injury["lossofenjoy"], 25000.0)
+
 
 if __name__ == "__main__":
     unittest.main()
