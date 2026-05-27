@@ -460,10 +460,10 @@
                     </div>
 
                     <!-- Right: Dynamic Legal Precedents & Live Preview -->
-                    <div class="panel scroll-y" id="calculator-right-pane">
+                    <div class="panel" id="calculator-right-pane" style="position: relative; overflow: hidden; display: flex; flex-direction: column; padding: 0;">
                         
                         <!-- High-Fidelity PDF Preview Panel -->
-                        <div class="card preview-card hidden-section" id="single-preview-card" style="height: 380px; margin-bottom: 24px; padding: 12px; display: flex; flex-direction: column;">
+                        <div class="card preview-card" id="single-preview-card" style="height: 100%; width: 100%; margin: 0; padding: 16px; display: flex; flex-direction: column; border: none; border-radius: 0;">
                             <div class="card-header" style="padding-bottom: 8px; margin-bottom: 8px;">
                                 <h3><i class="fa-solid fa-eye text-glow"></i> Case PDF Preview</h3>
                                 <span id="single-preview-filename" class="badge tech-badge">No File Loaded</span>
@@ -476,78 +476,92 @@
                             </div>
                         </div>
 
-                        <!-- Legal AI Summary Briefing Card -->
-                        <div class="card summary-card hidden-section" id="legal-ai-summary-card" style="margin-bottom: 24px; padding: 16px; display: flex; flex-direction: column;">
-                            <div class="card-header" style="padding-bottom: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
-                                <h3><i class="fa-solid fa-gavel text-glow text-purple"></i> Legal AI Summary Briefing</h3>
-                                <span class="badge state-badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);">AI Briefing</span>
-                            </div>
-                            <div class="card-body" id="legal-ai-summary-body" style="flex: 1; display: flex; flex-direction: column; gap: 12px;">
-                                <div class="empty-summary-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; opacity: 0.5; padding: 20px 0;">
-                                    <i class="fa-solid fa-gavel" style="font-size: 2.5rem; color: #c084fc;"></i>
-                                    <p style="font-size: 0.8rem; color: var(--text-secondary); text-align: center; margin: 0;">Upload a PDF to see the structured legal analysis summary and judicial anomaly checklist.</p>
-                                </div>
-                            </div>
+                        <!-- Floating Action Bar Toolbar -->
+                        <div class="preview-floating-toolbar" id="preview-toolbar">
+                            <button type="button" class="floating-tool-btn" data-panel="summary" title="AI Legal Briefing">
+                                <i class="fa-solid fa-brain-circuit text-purple"></i>
+                            </button>
+                            <button type="button" class="floating-tool-btn" data-panel="table" title="Extracted Table">
+                                <i class="fa-solid fa-table-list text-green"></i>
+                            </button>
+                            <button type="button" class="floating-tool-btn" data-panel="heuristics" title="Mathematical Heuristics">
+                                <i class="fa-solid fa-bolt text-warning"></i>
+                            </button>
+                            <button type="button" class="floating-tool-btn" data-panel="benchmarks" title="Qdrant Precedents Benchmark">
+                                <i class="fa-solid fa-scale-balanced text-glow"></i>
+                            </button>
                         </div>
 
-                        <!-- Extracted Compensation Table Card -->
-                        <div class="card table-card hidden-section" id="compensation-table-card" style="margin-bottom: 24px; padding: 16px; display: flex; flex-direction: column;">
-                            <div class="card-header" style="padding-bottom: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
-                                <h3><i class="fa-solid fa-table-list text-glow text-green"></i> Extracted Compensation Table</h3>
-                                <span class="badge state-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">Judicial Heads</span>
+                        <!-- Slide-Over Glassmorphic Drawer -->
+                        <div class="slideover-panel" id="right-slideover">
+                            <div class="slideover-header">
+                                <h3 id="slideover-title">AI Legal Briefing</h3>
+                                <button type="button" class="slideover-close-btn" id="close-slideover">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
                             </div>
-                            <div class="card-body" id="compensation-table-body" style="flex: 1; display: flex; flex-direction: column; gap: 8px;">
-                                <div class="empty-table-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; opacity: 0.5; padding: 20px 0;">
-                                    <i class="fa-solid fa-table-list" style="font-size: 2.5rem; color: #34d399;"></i>
-                                    <p style="font-size: 0.8rem; color: var(--text-secondary); text-align: center; margin: 0;">Upload a PDF to view the detailed breakdown of the judicial award heads.</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Real-time Mathematical Heuristics -->
-                        <div class="card metrics-card hidden-section" id="live-metrics-card" style="margin-bottom: 24px;">
-                            <div class="card-header">
-                                <h3><i class="fa-solid fa-bolt text-warning"></i> Dynamic Legal Heuristics</h3>
-                                <span class="badge state-badge">Live Preview</span>
-                            </div>
-                            <div class="card-body metrics-grid">
-                                <div class="metric-item">
-                                    <span class="metric-label">Calculated Age</span>
-                                    <span class="metric-value" id="live-age">-</span>
-                                </div>
-                                <div class="metric-item">
-                                    <span class="metric-label">Sarla Verma Multiplier</span>
-                                    <span class="metric-value text-glow" id="live-multiplier">-</span>
-                                </div>
-                                <div class="metric-item full-width" id="live-prospects-item">
-                                    <span class="metric-label">Future Prospects</span>
-                                    <div class="prospects-progress-container">
-                                        <span class="metric-value" id="live-prospects">-</span>
-                                        <div class="progress-bar-wrapper">
-                                            <div class="progress-bar-fill" id="live-prospects-bar"></div>
+                            <div class="slideover-body scroll-y">
+                                <!-- Legal AI Summary Briefing Card -->
+                                <div class="card summary-card slideover-tab-content" id="legal-ai-summary-card" style="padding: 16px; display: flex; flex-direction: column; border: none; background: transparent; box-shadow: none;">
+                                    <div class="card-body" id="legal-ai-summary-body" style="flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 0;">
+                                        <div class="empty-summary-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; opacity: 0.5; padding: 20px 0;">
+                                            <i class="fa-solid fa-gavel" style="font-size: 2.5rem; color: #c084fc;"></i>
+                                            <p style="font-size: 0.8rem; color: var(--text-secondary); text-align: center; margin: 0;">Upload a PDF to see the structured legal analysis summary and judicial anomaly checklist.</p>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="metric-item full-width" id="live-deductions-item">
-                                    <span class="metric-label">Family Deduction</span>
-                                    <div class="prospects-progress-container">
-                                        <span class="metric-value" id="live-deductions">-</span>
-                                        <div class="progress-bar-wrapper">
-                                            <div class="progress-bar-fill bg-danger" id="live-deductions-bar"></div>
+
+                                <!-- Extracted Compensation Table Card -->
+                                <div class="card table-card slideover-tab-content tab-hidden" id="compensation-table-card" style="padding: 16px; display: flex; flex-direction: column; border: none; background: transparent; box-shadow: none;">
+                                    <div class="card-body" id="compensation-table-body" style="flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 0;">
+                                        <div class="empty-table-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; opacity: 0.5; padding: 20px 0;">
+                                            <i class="fa-solid fa-table-list" style="font-size: 2.5rem; color: #34d399;"></i>
+                                            <p style="font-size: 0.8rem; color: var(--text-secondary); text-align: center; margin: 0;">Upload a PDF to view the detailed breakdown of the judicial award heads.</p>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
 
-                        <!-- Precedents Benchmarking evaluation -->
-                        <div class="card ocr-card hidden-section" id="evaluator-card">
-                            <div class="card-header">
-                                <h3><i class="fa-solid fa-balance-scale text-glow"></i> Qdrant Precedents Benchmark</h3>
-                                <button type="button" id="trigger-eval-btn" class="btn btn-small btn-primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Evaluate precedents</button>
-                            </div>
-                            <div class="card-body" id="evaluator-card-body">
-                                <p class="card-text">Once your case parameters are complete, click **Evaluate Precedents** to run a centralized Qdrant semantic analysis against historical judgments.</p>
+                                <!-- Real-time Mathematical Heuristics -->
+                                <div class="card metrics-card slideover-tab-content tab-hidden" id="live-metrics-card" style="border: none; background: transparent; box-shadow: none; padding: 16px;">
+                                    <div class="card-body metrics-grid" style="padding: 0;">
+                                        <div class="metric-item">
+                                            <span class="metric-label">Calculated Age</span>
+                                            <span class="metric-value" id="live-age">-</span>
+                                        </div>
+                                        <div class="metric-item">
+                                            <span class="metric-label">Sarla Verma Multiplier</span>
+                                            <span class="metric-value text-glow" id="live-multiplier">-</span>
+                                        </div>
+                                        <div class="metric-item full-width" id="live-prospects-item">
+                                            <span class="metric-label">Future Prospects</span>
+                                            <div class="prospects-progress-container">
+                                                <span class="metric-value" id="live-prospects">-</span>
+                                                <div class="progress-bar-wrapper">
+                                                    <div class="progress-bar-fill" id="live-prospects-bar"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="metric-item full-width" id="live-deductions-item">
+                                            <span class="metric-label">Family Deduction</span>
+                                            <div class="prospects-progress-container">
+                                                <span class="metric-value" id="live-deductions">-</span>
+                                                <div class="progress-bar-wrapper">
+                                                    <div class="progress-bar-fill bg-danger" id="live-deductions-bar"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Precedents Benchmarking evaluation -->
+                                <div class="card ocr-card slideover-tab-content tab-hidden" id="evaluator-card" style="border: none; background: transparent; box-shadow: none; padding: 16px;">
+                                    <div class="card-header" style="padding: 0 0 12px 0; border-bottom: 1px solid var(--border-glass); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+                                        <button type="button" id="trigger-eval-btn" class="btn btn-small btn-primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Evaluate precedents</button>
+                                    </div>
+                                    <div class="card-body" id="evaluator-card-body" style="padding: 0;">
+                                        <p class="card-text" style="color: var(--text-secondary); font-size: 0.85rem;">Once your case parameters are complete, click **Evaluate Precedents** to run a centralized Qdrant semantic analysis against historical judgments.</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 

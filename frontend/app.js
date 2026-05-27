@@ -1567,5 +1567,76 @@ document.addEventListener("DOMContentLoaded", () => {
         caseTypeSelect.value = "";
     });
 
+    // ==========================================================================
+    // FLOATING TOOLBAR & SLIDE-OVER OVERLAY CONTROLLER
+    // ==========================================================================
+    const slideover = document.getElementById("right-slideover");
+    const slideoverTitle = document.getElementById("slideover-title");
+    const closeSlideover = document.getElementById("close-slideover");
+    const toolbarButtons = document.querySelectorAll(".floating-tool-btn");
+    const tabContents = document.querySelectorAll(".slideover-tab-content");
+
+    const tabTitleMapping = {
+        "summary": "AI Legal Summary Briefing",
+        "table": "Extracted Compensation Table",
+        "heuristics": "Dynamic Legal Heuristics",
+        "benchmarks": "Qdrant Precedents Benchmark"
+    };
+
+    const tabIdMapping = {
+        "summary": "legal-ai-summary-card",
+        "table": "compensation-table-card",
+        "heuristics": "live-metrics-card",
+        "benchmarks": "evaluator-card"
+    };
+
+    toolbarButtons.forEach(btn => {
+        btn.addEventListener("click", () => {
+            const targetPanel = btn.getAttribute("data-panel");
+            const targetCardId = tabIdMapping[targetPanel];
+
+            // If the panel is already open and we clicked the same button, close it
+            if (btn.classList.contains("active") && slideover.classList.contains("open")) {
+                closeDrawer();
+                return;
+            }
+
+            // Set active states on buttons
+            toolbarButtons.forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+
+            // Update slide-over title
+            slideoverTitle.textContent = tabTitleMapping[targetPanel] || "Information Desk";
+
+            // Switch tab content visibility inside slideover
+            tabContents.forEach(content => {
+                if (content.getAttribute("id") === targetCardId) {
+                    content.classList.remove("tab-hidden");
+                } else {
+                    content.classList.add("tab-hidden");
+                }
+            });
+
+            // Open drawer
+            slideover.classList.add("open");
+        });
+    });
+
+    function closeDrawer() {
+        if (slideover) slideover.classList.remove("open");
+        toolbarButtons.forEach(b => b.classList.remove("active"));
+    }
+
+    if (closeSlideover) {
+        closeSlideover.addEventListener("click", closeDrawer);
+    }
+
+    // Escape key listener to close drawer
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+            closeDrawer();
+        }
+    });
+
     printBtn.addEventListener("click", () => { window.print(); });
 });

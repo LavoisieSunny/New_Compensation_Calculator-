@@ -274,6 +274,24 @@ class TestParserHeuristics(unittest.TestCase):
         self.assertEqual(suggestions_injury["loveaff"], 15000.0)
         self.assertEqual(suggestions_injury["lossofenjoy"], 25000.0)
 
+    def test_robust_ocr_sentence_fallbacks(self):
+        """Verify that deceased_name and monthly_income contextual fallbacks succeed."""
+        ocr_lines = [
+            "--- PAGE 1 ---",
+            "CLAIM PETITION BEFORE THE TRIBUNAL",
+            "This is a claim petition filed on account of the death of Birendra Singh who died in the accident.",
+            "He was working as a laborer.",
+            "--- PAGE 2 ---",
+            "COMPENSATION AWARD COPY",
+            "The monthly income of the deceased is assessed at Rs. 15,000/-",
+            "The claimant Rajesh Kumar is S/o Birendra Singh.",
+            "Total Awarded: Rs. 6,15,000/-"
+        ]
+        suggestions = parse_extracted_text(ocr_lines)
+        self.assertEqual(suggestions["deceased_name"], "Birendra Singh")
+        self.assertEqual(suggestions["monthly_income"], 15000.0)
+        self.assertEqual(suggestions["father_name"], "Birendra Singh")
+
 
 if __name__ == "__main__":
     unittest.main()

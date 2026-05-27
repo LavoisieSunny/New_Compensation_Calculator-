@@ -164,12 +164,18 @@ def clean_legal_name(name_str):
     if not name_str:
         return ""
         
+    # Remove trailing relative pronouns, verbs, and common prepositions/conjunctions
+    name_str = re.sub(r'\b(?:who|which|that|is|was|were|died|expired|in|on|at|by|for|of|and|the|a|an)\b.*$', '', name_str, flags=re.IGNORECASE)
+    name_str = name_str.strip()
+    
     # Ignore obvious non-person entities or metadata fields
     IGNORE_KEYWORDS = [
         "advocate", "counsel", "judge", "justice", 
         "insurance company", "insurance co", "citation", "referred case", 
         "cited case", "vakalatnama", "scc", "acj",
-        "insurance", "insur", "general", "company", "ltd", "limited", "corp", "corporation"
+        "insurance", "insur", "general", "company", "ltd", "limited", "corp", "corporation",
+        "is assessed", "assessed at", "monthly income", "income is", "rs.", "rs ", "inr", "per month", "per annum",
+        "died in", "died on", "accident occurred", "occurred at", "took place", "working as", "employed as", "earning", "wages", "salary"
     ]
     name_lower = name_str.lower()
     if any(kw in name_lower for kw in IGNORE_KEYWORDS):
@@ -226,8 +232,11 @@ def clean_legal_name(name_str):
     # Normalize spaces
     name_str = re.sub(r'\s+', ' ', name_str).strip()
     
-    # If the result is one of the legal roles themselves, discard it
-    if name_str.lower() in ["appellant", "respondent", "versus", "vs", "petitioner", "claimant", "deceased", "injured"]:
+    # If the result is one of the legal roles themselves, or common particles, discard it
+    if name_str.lower() in ["appellant", "respondent", "versus", "vs", "petitioner", "claimant", "deceased", "injured", "the", "a", "an", "of", "and", "to", "in", "for", "with", "on", "at", "by", "from", "is", "was", "were", "be", "been", "has", "have", "had", "are", "this", "that"]:
+        return ""
+        
+    if len(name_str) < 3:
         return ""
         
     return name_str
@@ -243,9 +252,9 @@ def extract_relationship_entities(text):
         return None
         
     rel_patterns = [
-        (r'(.*?)\b(?:s/o|son\s+of)\b\s*(?:shri)?\s*(.*)', "Son of"),
-        (r'(.*?)\b(?:d/o|daughter\s+of)\b\s*(?:shri|smt)?\s*(.*)', "Daughter of"),
-        (r'(.*?)\b(?:w/o|wife\s+of)\b\s*(?:shri)?\s*(.*)', "Wife of")
+        (r'(.*?)\b(?:s[\./\s]*o|son\s+of)\b[\s\.]*(?:shri|late)?\s*(.*)', "Son of"),
+        (r'(.*?)\b(?:d[\./\s]*o|daughter\s+of)\b[\s\.]*(?:shri|smt|late)?\s*(.*)', "Daughter of"),
+        (r'(.*?)\b(?:w[\./\s]*o|wife\s+of)\b[\s\.]*(?:shri|late)?\s*(.*)', "Wife of")
     ]
     
     for pat, rel_type in rel_patterns:
@@ -255,7 +264,7 @@ def extract_relationship_entities(text):
             f_part = m.group(2).strip()
             
             # Strip typical claimant/petitioner label prefixes from the claimant part
-            c_part = re.sub(r'^(?:claimant\s+name|petitioner\s+name|name\s+of\s+injured|name\s+of\s+claimant|name\s+of\s+victim|claimant|petitioner|victim|injured|name)\s*[:\-–\s]+', '', c_part, flags=re.IGNORECASE)
+            c_part = re.sub(r'^(?:the\s+)?(?:claimant\s+name|petitioner\s+name|name\s+of\s+injured|name\s+of\s+claimant|name\s+of\s+victim|claimant|petitioner|victim|injured|name)\s*[:\-–\s]+', '', c_part, flags=re.IGNORECASE)
             
             # Apply boundary truncation to avoid leaking trailing fields
             stop_labels = [
@@ -441,7 +450,7 @@ def classify_page_fallback(page_text, section_name):
         if any(w in text_lower for w in ["vakalatnama", "vakalath", "appoint", "advocate"]):
             return False
         has_rel = any(w in text_lower for w in ["s/o", "d/o", "w/o", "son of", "wife of"])
-        has_parties = any(w in text_lower for w in ["claimant", "petitioner", "versus", "respondent"])
+        has_parties = any(w in text_lower for w in ["claimant", "petitioner", "versus", "respondent", "claim petition", "death of", "petition before"])
         return has_rel or has_parties
         
     elif section_name == "vakalatnama_section":
@@ -1073,7 +1082,11 @@ def parse_extracted_text(text_lines):
         r'^(?:\d+[\.\)\-]\s*)?\bdeceased\b\s*(?:name)?\s*[:\-]\s*(.*)',
         r'\b(?:name\s+of\s+)deceased\b\s*[:\-]\s*(.*)',
         r'^(?:\d+[\.\)\-]\s*)?\bdeath\s+of\s+(.*)',
-        r'\blate\b\s*(?:shri|smt)?\s*(.*)'
+        r'\blate\b\s*(?:shri|smt)?\s*(.*)',
+        r'\b([A-Z][a-zA-Z \t]+)\s*(?:\(deceased\)|deceased)\b',
+        r'\b(?:deceased)\s+([A-Z][a-zA-Z \t]+)\b',
+        r'\bdeath\s+of\s+(?:shri|smt|late)?\s*([A-Z][a-zA-Z \t]+)\b',
+        r'\b([A-Z][a-zA-Z \t]+)\s*(?:died|expired)\b'
     ]
     deceased_name, conf_deceased_name, sec_deceased_name, page_deceased_name = contextual_extract(
         dec_patterns, sections, [("claimant_section", 90), ("memo_of_appeal_section", 80)], type_cast=str,
@@ -1131,7 +1144,12 @@ def parse_extracted_text(text_lines):
 
     # Splitting Claimant Inline Relationship
     source_line = sections.get("claimant_section", "")
-    split_res = extract_relationship_entities(source_line)
+    split_res = None
+    for line in source_line.split("\n"):
+        if any(re.search(pat, line, re.IGNORECASE) for pat in [r'\b(?:s[\./\s]*o|son\s+of)\b', r'\b(?:d[\./\s]*o|daughter\s+of)\b', r'\b(?:w[\./\s]*o|wife\s+of)\b']):
+            split_res = extract_relationship_entities(line)
+            if split_res:
+                break
     if split_res:
         c_split, rel_type, f_split = split_res
         if c_split:
@@ -1283,9 +1301,13 @@ def parse_extracted_text(text_lines):
         method_monthly_income = "Compensation Table Extraction"
     else:
         income_patterns = [
-            r'(?:monthly\s+income|salary|earning|notional\s+income|coolie|wages?)\s*(?:is|was|of|@)?\s*(?:rs\.?|inr)?\s*([\d,\.\s]+lakhs?|[\d,\.\s]+lacs?|[\d,\.\s]+)\b',
+            r'(?:monthly\s+income|salary|earning|notional\s+income|coolie|wages?)\s*(?:is|was|has\s+been)?\s*(?:assessed|taken|fixed|determined)?\s*(?:at|as|of|@)?\s*(?:rs\.?|inr)?\s*([\d,\.\s]+lakhs?|[\d,\.\s]+lacs?|[\d,\.\s]+)\b',
             r'\b(?:rs\.?|inr)?\s*([\d,\.]+)\s*(?:rs\.?|inr)?\s*(?:per\s*month|\/pm|\/-\s*pm|p\.m\.)',
-            r'per\s*month\b.*?([\d,\.]+)\b'
+            r'per\s*month\b.*?([\d,\.]+)\b',
+            r'income\s+is\s+assessed\s+at\s+rs\.?\s*([\d,\.]+)\b',
+            r'assessed\s+(?:the\s+)?monthly\s+income\s+(?:of\s+the\s+deceased\s+)?at\s*(?:rs\.?|inr)?\s*([\d,\.]+)\b',
+            r'monthly\s+income\s+of\s+the\s+deceased\s+(?:is|was)\s*(?:assessed|taken|fixed|determined)\s*(?:at|as)?\s*(?:rs\.?|inr)?\s*([\d,\.]+)\b',
+            r'\b(?:rs\.?|inr)?\s*([\d,\.\s]+)\s*p\.m\.\b'
         ]
         monthly_income, conf_monthly_income, sec_monthly_income, page_monthly_income = contextual_extract(
             income_patterns, sections, [("compensation_section", 95), ("award_copy_section", 90)], default_val="", type_cast=float,
