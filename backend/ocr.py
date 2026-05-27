@@ -204,40 +204,18 @@ def preprocess_image_enhanced(pil_img):
 
 def render_pdf_page_high_dpi(pdf_path: str, page_idx: int):
     """
-    Renders a specific page of a PDF at 220 DPI.
-    Attempts to use pdf2image (convert_from_path) first.
-    If pdf2image or poppler is missing, falls back to pypdfium2 with scale=3.0 (~220 DPI).
+    Renders a specific page of a PDF at 220 DPI (scale=3.0) using pypdfium2.
+    Highly reliable, fast, in-process rendering without requiring external binary dependencies like Poppler.
     """
-    from PIL import Image
-    try:
-        from pdf2image import convert_from_path
-        # convert_from_path uses 1-based page indices
-        pages = convert_from_path(
-            pdf_path,
-            dpi = 220,
-            fmt="png",
-            first_page=page_idx + 1,
-            last_page=page_idx + 1
-        )
-        if pages:
-            logger.info(f"Page {page_idx+1} rendered at 220 DPI using pdf2image.")
-            return pages[0]
-    except Exception as e:
-        logger.warning(
-            f"pdf2image high-DPI rendering failed or poppler not available: {str(e)}. "
-            f"Falling back to high-resolution pypdfium2 rendering at scale=3.0."
-        )
-    
-    # Fallback using pypdfium2 at scale = 3.0 (220 DPI / 72 points per inch = 3.05)
     try:
         import pypdfium2 as pdfium
         doc = pdfium.PdfDocument(pdf_path)
         page = doc[page_idx]
         bitmap = page.render(scale=3.0)
-        logger.info(f"Page {page_idx+1} rendered at 220 DPI using pypdfium2 fallback.")
+        logger.info(f"Page {page_idx+1} rendered at 220 DPI using pypdfium2.")
         return bitmap.to_pil()
     except Exception as ex:
-        logger.error(f"Failed to render page {page_idx+1} with high-DPI fallback: {str(ex)}")
+        logger.error(f"Failed to render page {page_idx+1} using pypdfium2: {str(ex)}")
         raise ex
 
 
