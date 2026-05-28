@@ -434,30 +434,18 @@ def init_tesseract():
     
     try:
         import pytesseract
-        import platform
-        # 1. Check system PATH first using shutil.which
+        # Clean system PATH check
         tess_path = shutil.which("tesseract")
-        
-        # 2. If not in PATH and on Windows, check default install locations
-        if not tess_path and platform.system() == "Windows":
-            possible_paths = [
-                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-                os.path.expanduser(r"~\AppData\Local\Programs\Tesseract-OCR\tesseract.exe")
-            ]
-            for path in possible_paths:
-                if os.path.exists(path):
-                    tess_path = path
-                    break
         
         if tess_path:
             pytesseract.pytesseract.tesseract_cmd = tess_path
             logger.info(f"Tesseract found and configured at: {tess_path}")
         else:
-            logger.warning("Tesseract binary not found in PATH or standard installation locations.")
+            logger.warning("Tesseract binary not found in PATH.")
     except Exception as e:
         logger.warning(f"Error during Tesseract path initialization: {str(e)}")
     _TESSERACT_INITIALIZED = True
+
 
 def is_tesseract_available() -> bool:
     global _TESSERACT_AVAILABLE

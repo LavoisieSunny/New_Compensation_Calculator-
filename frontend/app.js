@@ -2,6 +2,11 @@
    COMPENSATION CALCULATOR WORKSTATION - FRONTEND DASHBOARD ENGINE
    ========================================================================== */
 
+// Global Error Handler to shield against silent crashes (Task 19)
+window.onerror = function(msg, src, line, col, err) {
+    console.error("GLOBAL ERROR DETECTED:", msg, "at", src, "line:", line, err);
+};
+
 document.addEventListener("DOMContentLoaded", () => {
     
     // --- STATE VARIABLES ---
@@ -798,6 +803,14 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         
         alert(`Auto-filled workstation variables successfully! DOB and accident dates converted.`);
+        
+        // Auto trigger automatic recalculation after autofill is completed (Task 18)
+        setTimeout(() => {
+            console.log("AUTO RECALCULATING after OCR autofill...");
+            if (compensationForm) {
+                compensationForm.dispatchEvent(new Event("submit"));
+            }
+        }, 500);
     }
 
     // ==========================================================================
@@ -1018,6 +1031,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // ==========================================================================
     compensationForm.addEventListener("submit", async (e) => {
         e.preventDefault();
+        console.log("CALCULATE CLICKED");
         
         const caseType = caseTypeSelect.value;
         if (!caseType) {
@@ -1027,12 +1041,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const payload = {
             case_type: caseType,
-            age: parseInt(ageInput.value) || 0,
-            monthly_income: parseFloat(monthlyIncomeInput.value) || 0,
+            age: Number(ageInput.value || 0),
+            monthly_income: Number(monthlyIncomeInput.value || 0),
             
-            dependents: parseInt(dependentsInput.value) || 0,
+            dependents: Number(dependentsInput.value || 0),
             marital_status: maritalStatusSelect.value || "married",
-            future_type: parseInt(futureTypeSelect?.value) || 2,
+            future_type: Number(futureTypeSelect?.value || 2),
             consortium: 40000,
             funeral_expenses: 15000,
             loss_estate: 15000,
@@ -1049,14 +1063,14 @@ document.addEventListener("DOMContentLoaded", () => {
             conbro: 0,
             consis: 0,
             
-            disability: parseFloat(document.getElementById("disability")?.value) || 0,
-            medical_expenses: parseFloat(document.getElementById("medical_expenses")?.value) || 0,
-            future_medical_expenses: parseFloat(document.getElementById("future_medical_expenses")?.value) || 0,
-            pain_and_suffering: parseFloat(document.getElementById("pain_and_suffering")?.value) || 0,
-            transportation: parseFloat(document.getElementById("transportation")?.value) || 0,
-            special_diet: parseFloat(document.getElementById("special_diet")?.value) || 0,
-            attender_charges: parseFloat(document.getElementById("attender_charges")?.value) || 0,
-            loss_of_income: parseFloat(document.getElementById("loss_of_income")?.value) || 0,
+            disability: Number(document.getElementById("disability")?.value || 0),
+            medical_expenses: Number(document.getElementById("medical_expenses")?.value || 0),
+            future_medical_expenses: Number(document.getElementById("future_medical_expenses")?.value || 0),
+            pain_and_suffering: Number(document.getElementById("pain_and_suffering")?.value || 0),
+            transportation: Number(document.getElementById("transportation")?.value || 0),
+            special_diet: Number(document.getElementById("special_diet")?.value || 0),
+            attender_charges: Number(document.getElementById("attender_charges")?.value || 0),
+            loss_of_income: Number(document.getElementById("loss_of_income")?.value || 0),
 
             // Extra Injury heads
             coliti: 0,

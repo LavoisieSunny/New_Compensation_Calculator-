@@ -173,17 +173,26 @@ def clean_legal_name(name_str):
     
     # Ignore obvious non-person entities or metadata fields
     IGNORE_KEYWORDS = [
-        "advocate", "counsel", "judge", "justice", 
+        "advocate", "counsel", "judge", "justice", "adv.", "appearing", "learned", "counsel", "advocate", "prosecutor", "amicus", "curiae",
         "insurance company", "insurance co", "citation", "referred case", 
         "cited case", "vakalatnama", "scc", "acj",
         "insurance", "insur", "general", "company", "ltd", "limited", "corp", "corporation",
         "is assessed", "assessed at", "monthly income", "income is", "rs.", "rs ", "inr", "per month", "per annum",
         "died in", "died on", "accident occurred", "occurred at", "took place", "working as", "employed as", "earning", "wages", "salary",
         "description", "particulars", "details of", "description of",
-        "non-claimant", "non claimant", "owner", "driver"
+        "non-claimant", "non claimant", "owner", "driver",
+        "appellant", "respondent", "versus", "vs", "petitioner", "claimant", "deceased", "injured",
+        "citation", "judgment", "judgement", "appeal", "application", "petitions", "suit",
+        "sarla verma", "pranay sethi", "national insurance", "oriental insurance", "new india assurance", 
+        "united india", "challa bharathamma", "munna lal jain", "lata wadhwa", "reshma kumari",
+        "sanjay verma", "delhi transport", "d.t.c", "upsrtc", "mpsrtc", "rsrtc", "corporation", "co-operative"
     ]
     name_lower = name_str.lower()
     if any(kw in name_lower for kw in IGNORE_KEYWORDS):
+        return ""
+        
+    # Strictly reject any name containing inline versus/vs/v. to prevent case title contamination
+    if any(kw in name_lower for kw in [" vs ", " vs. ", " versus ", " v. ", " v "]):
         return ""
         
     # Reject directly contaminated prefix lines to preserve strict backward compatibility with existing unit tests
@@ -969,7 +978,7 @@ def extract_compensation_table_fields(section_content):
             "claimant claimed", "claimant's demand", "pleaded", "averred", "sought", "demanded",
             "advocate", "counsel", "contended", "argued", "submissions", "according to", "deposition of",
             "sarlavarma", "pranaysethi", "reported in", "scc", "acj", "versus", "appeal by", "insurance co",
-            "deposit", "interest @", "rate of interest"
+            "deposit", "interest @", "rate of interest", "claim amount", "appeal amount", "precedent", "cited case", "judgment cited", "petition valuation"
         ]
         if any(kw in line_lower for kw in avoid_kws):
             continue
