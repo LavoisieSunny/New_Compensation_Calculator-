@@ -52,6 +52,8 @@ class CompensationRequest(BaseModel):
 
     future_type: int = 2
 
+    future_prospect: Optional[float] = None
+
     consortium: float = 40000.0
 
     funeral_expenses: float = 15000.0
@@ -116,6 +118,8 @@ class CompensationRequest(BaseModel):
                     cleaned[k] = "married"
                 elif k in ["age", "future_type"]:
                     cleaned[k] = 30 if k == "age" else 2
+                elif k == "future_prospect":
+                    cleaned[k] = None
                 elif k in ["monthly_income", "consortium", "funeral_expenses", "loss_estate", "disability"]:
                     if k == "consortium":
                         cleaned[k] = 40000.0
@@ -141,9 +145,12 @@ class CompensationRequest(BaseModel):
                     "transportation", "special_diet", "attender_charges", "loss_of_income",
                     "conlum", "conspo", "conpar", "conchil", "conwif", "conmo", "confath",
                     "conhus", "conbro", "consis", "coliti", "misex", "loamiti", "lopmarri",
-                    "loexlife", "loveaff", "lossofenjoy"
+                    "loexlife", "loveaff", "lossofenjoy", "future_prospect"
                 ]:
-                    cleaned[k] = safe_float(v)
+                    if k == "future_prospect":
+                        cleaned[k] = safe_float(v) if v is not None and v != "" else None
+                    else:
+                        cleaned[k] = safe_float(v)
                 else:
                     cleaned[k] = v
         return cleaned
@@ -273,8 +280,11 @@ def calculate_death_compensation(
     future_type = safe_int(data.future_type, 2)
 
     multiplier = get_multiplier(age)
-    future_percent = get_future_prospect(age, future_type)
-    future_prospect_percentage = round(future_percent * 100)
+    if data.future_prospect is not None:
+        future_prospect_percentage = round(safe_float(data.future_prospect))
+    else:
+        future_percent = get_future_prospect(age, future_type)
+        future_prospect_percentage = round(future_percent * 100)
 
     future_prospect_amount = monthly_income * future_prospect_percentage / 100.0
     enhanced_monthly_income = monthly_income + future_prospect_amount

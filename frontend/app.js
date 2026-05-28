@@ -403,12 +403,16 @@ document.addEventListener("DOMContentLoaded", () => {
             
             if (caseType === "death") {
                 const futureType = futureTypeSelect ? futureTypeSelect.value : 2;
-                const prospects = getFutureProspectPercentage(age, futureType);
+                const futureProspectInput = document.getElementById("future-prospect");
+                let prospects;
+                if (futureProspectInput && futureProspectInput.value !== "" && !isNaN(parseFloat(futureProspectInput.value))) {
+                    prospects = parseFloat(futureProspectInput.value);
+                } else {
+                    prospects = getFutureProspectPercentage(age, futureType);
+                    if (futureProspectInput) futureProspectInput.value = prospects;
+                }
                 if (liveProspects) liveProspects.textContent = `${prospects}%`;
                 if (liveProspectsBar) liveProspectsBar.style.width = `${prospects}%`;
-                
-                const futureProspectInput = document.getElementById("future-prospect");
-                if (futureProspectInput) futureProspectInput.value = prospects;
                 
                 const deathMultInput = document.getElementById("death-multiplier");
                 if (deathMultInput) deathMultInput.value = mult;
@@ -483,25 +487,40 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    const handleRecalculateDefaultProspects = () => {
+        const dobVal = dobInput.value;
+        const doaVal = doaInput.value;
+        const age = calculateAge(dobVal, doaVal);
+        if (age !== null) {
+            const futureType = futureTypeSelect ? futureTypeSelect.value : 2;
+            const prospects = getFutureProspectPercentage(age, futureType);
+            const futureProspectInput = document.getElementById("future-prospect");
+            if (futureProspectInput) futureProspectInput.value = prospects;
+        }
+        updateLiveCalculations();
+    };
+
     if (futureTypeSelect) {
-        futureTypeSelect.addEventListener("change", updateLiveCalculations);
+        futureTypeSelect.addEventListener("change", handleRecalculateDefaultProspects);
     }
 
-    dobInput.addEventListener("change", updateLiveCalculations);
-    doaInput.addEventListener("change", updateLiveCalculations);
+    dobInput.addEventListener("change", handleRecalculateDefaultProspects);
+    doaInput.addEventListener("change", handleRecalculateDefaultProspects);
     maritalStatusSelect.addEventListener("change", updateLiveCalculations);
     dependentsInput.addEventListener("input", updateLiveCalculations);
     monthlyIncomeInput.addEventListener("input", updateLiveCalculations);
     
-    // Set dynamic update bindings for new Death Claim inputs
+    // Set dynamic update bindings for new Death Claim inputs and prospects field manual override
     setTimeout(() => {
         const consInput = document.getElementById("consortium");
         const funInput = document.getElementById("funeral-expenses");
         const estInput = document.getElementById("loss-estate");
+        const futureProspectInput = document.getElementById("future-prospect");
         
         if (consInput) consInput.addEventListener("input", updateLiveCalculations);
         if (funInput) funInput.addEventListener("input", updateLiveCalculations);
         if (estInput) estInput.addEventListener("input", updateLiveCalculations);
+        if (futureProspectInput) futureProspectInput.addEventListener("input", updateLiveCalculations);
     }, 50);
 
     // ==========================================================================
@@ -1149,6 +1168,7 @@ document.addEventListener("DOMContentLoaded", () => {
             dependents: Number(dependentsInput.value || 0),
             marital_status: maritalStatusSelect.value || "married",
             future_type: Number(futureTypeSelect?.value || 2),
+            future_prospect: Number(document.getElementById("future-prospect")?.value || 0),
             consortium: Number(document.getElementById("consortium")?.value || 40000),
             funeral_expenses: Number(document.getElementById("funeral-expenses")?.value || 15000),
             loss_estate: Number(document.getElementById("loss-estate")?.value || 15000),

@@ -57,5 +57,42 @@ class TestMPHCCalculator(unittest.TestCase):
         print(f"  Loss of Dependency:      {res['loss_of_dependency']}")
         print(f"  Final Settlement Value:  {res['final_compensation']}")
 
+    def test_mphc_death_compensation_user_exact_validation(self):
+        """
+        Verify the exact user-specified validation test:
+        - Age = 24 (Multiplier = 18)
+        - Monthly Income = 23,000
+        - Future Prospects Override = 50%
+        - Dependents = 3 (Deduction = 1/3)
+        - Loss Estate = 15,000, Consortium = 40,000, Funeral = 15,000
+        - Expected Final Compensation = 5,038,000
+        """
+        req = CompensationRequest(
+            case_type="death",
+            age=24,
+            monthly_income=23000.0,
+            dependents=3,
+            marital_status="married",
+            future_prospect=50.0,
+            consortium=40000.0,
+            funeral_expenses=15000.0,
+            loss_estate=15000.0
+        )
+        
+        res = calculate_death_compensation(req)
+        
+        # Verify the calculations
+        self.assertEqual(res["future_prospect_percentage"], 50)
+        self.assertEqual(res["future_prospect_amount"], 11500)
+        self.assertEqual(res["enhanced_monthly_income"], 34500)
+        self.assertEqual(res["annual_income"], 414000)
+        self.assertEqual(res["deduction_amount"], 138000)
+        self.assertEqual(res["dependency_income"], 276000)
+        self.assertEqual(res["multiplier"], 18)
+        self.assertEqual(res["loss_of_dependency"], 4968000)
+        self.assertEqual(res["final_compensation"], 5038000)
+        self.assertEqual(res["final_amount"], 5038000)
+        print("\n[SUCCESS] User exact validation test passed successfully! Output is 5,038,000.")
+
 if __name__ == "__main__":
     unittest.main()
