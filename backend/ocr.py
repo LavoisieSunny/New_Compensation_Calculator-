@@ -177,7 +177,7 @@ def extract_alternate_pdf_text(file_path: str) -> list:
 def classify_scanned_page(pil_img) -> str:
     """
     Intelligent pre-OCR Page Classifier.
-    Analyzes visual entropy (stddev) and edge pixel density.
+    Analyzes visual entropy (variance/stddev) and edge pixel density.
     Bypasses blank, separator, or low-entropy pages from OCR to protect memory.
     """
     try:
@@ -188,11 +188,12 @@ def classify_scanned_page(pil_img) -> str:
         else:
             gray = open_cv_image.copy()
 
+        variance = np.var(gray)
         stddev = np.std(gray)
-        logger.info(f"Page Classifier: Grayscale standard deviation = {stddev:.2f}")
+        logger.info(f"Page Classifier: Grayscale variance = {variance:.2f}, stddev = {stddev:.2f}")
 
-        # Completely blank scan/separator detection
-        if stddev < 7.0:
+        # Completely blank scan/separator or low-entropy page detection (grayscale variance extremely low)
+        if variance < 50.0 or stddev < 7.0:
             return "scanned_blank"
 
         # Count high-contrast edge/text pixels
@@ -214,8 +215,6 @@ def classify_scanned_page(pil_img) -> str:
     except Exception as e:
         logger.warning(f"Fast page classification failed, defaulting to dense_text: {str(e)}")
         return "dense_text"
-
-
 # ======================================================
 # MAX PAGE MEMORY GUARD (DOWNSCALE GUARD)
 # ======================================================
@@ -223,15 +222,15 @@ def classify_scanned_page(pil_img) -> str:
 def guard_and_downscale_image(pil_img):
     """
     Automatically scales down extremely high-resolution images to prevent OOM.
-    Applies if width > 5000px OR estimated bitmap memory footprint > 120MB.
+    Applies if estimated bitmap memory footprint > 80MB.
     """
     width, height = pil_img.size
     est_memory = width * height * 3
     
-    if width > 5000 or est_memory > 120 * 1024 * 1024:
+    if est_memory > 80 * 1024 * 1024:
         logger.info(f"Max Page Memory Guard Triggered: {width}x{height} image (Est memory: {est_memory / (1024*1024):.1f}MB)")
-        # Scale down to a safe width max of 2000px preserving aspect ratio
-        ratio = min(2000.0 / width, (120.0 * 1024 * 1024 / est_memory) ** 0.5)
+        # Scale down to a safe width max of 1800px preserving aspect ratio
+        ratio = min(1800.0 / width, (80.0 * 1024 * 1024 / est_memory) ** 0.5)
         new_width = int(width * ratio)
         new_height = int(height * ratio)
         logger.info(f"Downscaling image to {new_width}x{new_height} for stable execution.")
@@ -246,7 +245,7 @@ def guard_and_downscale_image(pil_img):
 def preprocess_image_light(pil_img, binarize=True):
     """
     Minimal and lightweight preprocessing to prevent massive array allocations.
-    Applies only: Grayscale conversion, Light Gaussian denoise, CLAHE, Adaptive threshold.
+    Applies only: Grayscale conversion, Light Gaussian denoise, CLAHE, Otsu threshold.
     """
     try:
         import cv2
@@ -266,12 +265,9 @@ def preprocess_image_light(pil_img, binarize=True):
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         contrast = clahe.apply(denoised)
 
-        # 4. Adaptive thresholding
+        # 4. Otsu binarization thresholding
         if binarize:
-            processed = cv2.adaptiveThreshold(
-                contrast, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY, 11, 2
-            )
+            _, processed = cv2.threshold(contrast, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         else:
             processed = contrast
 
@@ -472,17 +468,17 @@ def run_tesseract_fallback(pil_img) -> tuple:
     try:
         import pytesseract
         try:
-            text_str = pytesseract.image_to_string(pil_img, lang="eng+hin")
+            text_str = pytesseract.image_to_string(pil_img, lang="eng+hin", config="--oem 1 --psm 6")
             config_lang = "eng+hin"
         except Exception:
-            text_str = pytesseract.image_to_string(pil_img, lang="eng")
+            text_str = pytesseract.image_to_string(pil_img, lang="eng", config="--oem 1 --psm 6")
             config_lang = "eng"
             
         text_lines = [line.strip() for line in text_str.split("\n") if line.strip()]
         
         confidences = []
         try:
-            data = pytesseract.image_to_data(pil_img, lang=config_lang, output_type=pytesseract.Output.DICT)
+            data = pytesseract.image_to_data(pil_img, lang=config_lang, config="--oem 1 --psm 6", output_type=pytesseract.Output.DICT)
             if isinstance(data, dict) and 'conf' in data:
                 for c in data['conf']:
                     try:
@@ -585,7 +581,7 @@ def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: in
     save_ocr_debug_image(f"debug_original_{page_num}.png", pil_img)
     save_ocr_debug_image(f"debug_processed_{page_num}.png", processed_img)
 
-    # 6. Single Pass PaddleOCR with Timeout Guard (40 seconds max)
+    # 6. Single Pass PaddleOCR with Timeout Guard (15 seconds max)
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
     processed_img.save(temp_file)
     
@@ -601,9 +597,9 @@ def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: in
         return None
 
     try:
-        result, status = run_with_timeout(run_paddle, timeout=40.0)
+        result, status = run_with_timeout(run_paddle, timeout=15.0)
         if status == "timeout":
-            logger.warning(f"PaddleOCR timed out on page {page_num} after 40 seconds. Aborting page safely.")
+            logger.warning(f"PaddleOCR timed out on page {page_num} after 15 seconds. Aborting page safely.")
             result = None
 
         if result:
@@ -619,51 +615,16 @@ def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: in
         except Exception:
             pass
 
-    # 7. Optional 300 DPI Retry (ONLY if confidence < 0.20 and total pages <= 3)
-    if len(lines) == 0 or (conf < 0.20 and total_pages <= 3):
-        logger.info(f"Page {page_num}: Low confidence/empty. Retrying at 300 DPI (short doc safety).")
-        try:
-            pil_300 = render_pdf_page_high_dpi(pdf_path, page_idx, scale=4.167) if pdf_path else page_doc.render(scale=4.167).to_pil()
-            pil_300 = guard_and_downscale_image(pil_300)
-            processed_300 = preprocess_image_light(pil_300, binarize=True)
-            
-            save_ocr_debug_image(f"debug_processed_300_{page_num}.png", processed_300)
-            temp_file_300 = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
-            processed_300.save(temp_file_300)
-            
-            def run_paddle_300():
-                engine = get_ocr_instance()
-                if engine:
-                    return engine.ocr(temp_file_300)
-                return None
-                
-            result_300, status_300 = run_with_timeout(run_paddle_300, timeout=40.0)
-            if result_300:
-                lines = extract_text_lines_from_paddle_result(result_300)
-                conf = calculate_paddle_confidence(result_300)
-                if conf == 0.00 and len(lines) >= 15:
-                    conf = 0.85
-                dpi_used = 300
-                logger.info(f"300 DPI retry successful: {len(lines)} lines, conf={conf:.2f}")
-            
-            try:
-                os.unlink(temp_file_300)
-            except Exception:
-                pass
-            del pil_300, processed_300
-        except Exception as err300:
-            logger.error(f"300 DPI retry failed: {str(err300)}")
-
-    # 8. Last-resort basic Tesseract fallback
-    if len(lines) == 0 and is_tesseract_available():
-        logger.info(f"Page {page_num}: PaddleOCR returned empty. Running last-resort Tesseract fallback.")
+    # 7. Last-resort basic Tesseract fallback (if empty text OR confidence < 0.15)
+    if (len(lines) == 0 or conf < 0.15) and is_tesseract_available():
+        logger.info(f"Page {page_num}: PaddleOCR returned empty or low confidence ({conf:.2f} < 0.15). Running last-resort Tesseract fallback.")
         try:
             lines, conf = run_tesseract_fallback(processed_img)
             engine_used = "Tesseract"
         except Exception as tess_err:
             logger.error(f"Tesseract fallback failed: {str(tess_err)}")
 
-    # 9. Strict page-wise memory cleanup
+    # 8. Strict page-wise memory cleanup
     del pil_img, processed_img
     gc.collect()
     
@@ -872,9 +833,9 @@ def perform_ocr_on_image(file_path: str) -> tuple:
             return None
             
         try:
-            result, status = run_with_timeout(run_paddle, timeout=40.0)
+            result, status = run_with_timeout(run_paddle, timeout=15.0)
             if status == "timeout":
-                logger.warning("PaddleOCR timed out on image upload.")
+                logger.warning("PaddleOCR timed out on image upload after 15 seconds.")
                 result = None
                 
             if result:
@@ -891,8 +852,8 @@ def perform_ocr_on_image(file_path: str) -> tuple:
                 pass
 
         # Last-resort Tesseract Fallback
-        if len(lines) == 0 and is_tesseract_available():
-            logger.info("Image PaddleOCR returned empty. Running last-resort Tesseract fallback.")
+        if (len(lines) == 0 or conf < 0.15) and is_tesseract_available():
+            logger.info("Image PaddleOCR returned empty or low confidence. Running last-resort Tesseract fallback.")
             try:
                 lines, conf = run_tesseract_fallback(processed_img)
                 engine_used = "Tesseract"
