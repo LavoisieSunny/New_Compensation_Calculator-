@@ -544,17 +544,7 @@ select.low-confidence-input {
     z-index: 1;
 }
 
-.show {
-    display: block !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-}
 
-.show-flex {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-}
 
 /* Real-time Live Calculation Dashboard */
 .live-calc-dashboard {
@@ -658,11 +648,7 @@ select.low-confidence-input {
 }
 
 
-.hidden-section {
-    display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-}
+
 
 @keyframes slideIn {
     to { opacity: 1; transform: translateY(0); }
@@ -2283,18 +2269,21 @@ select.low-confidence-input {
     display: none !important;
     visibility: hidden !important;
     opacity: 0 !important;
+    pointer-events: none !important;
 }
 
 .show {
     display: block !important;
     visibility: visible !important;
     opacity: 1 !important;
+    pointer-events: auto !important;
 }
 
 .show-flex {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
+    pointer-events: auto !important;
 }
 
 /* --- PREMIUM AI LEGAL ASSISTANT DRAWER STYLES --- */

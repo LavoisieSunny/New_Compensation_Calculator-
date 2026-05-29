@@ -400,60 +400,63 @@ document.addEventListener("DOMContentLoaded", () => {
         singleUploadSection.classList.remove("show-flex");
         singleUploadSection.classList.add("hidden-section");
 
-        setTimeout(() => {
-            sharedFields.classList.remove("hidden-section");
-            sharedFields.classList.add("show");
+        sharedFields.classList.remove("hidden-section");
+        sharedFields.classList.add("show");
+        
+        singleUploadSection.classList.remove("hidden-section");
+        singleUploadSection.classList.add("show-flex");
+        
+        if (caseType === "injury") {
+            injuryFields.classList.remove("hidden-section");
+            injuryFields.classList.add("show");
             
-            singleUploadSection.classList.remove("hidden-section");
-            singleUploadSection.classList.add("show-flex");
+            if (liveDeductionsItem) liveDeductionsItem.classList.add("hidden");
+            if (liveProspectsItem) liveProspectsItem.classList.add("hidden");
             
-            if (caseType === "injury") {
-                injuryFields.classList.remove("hidden-section");
-                injuryFields.classList.add("show");
-                
-                if (liveDeductionsItem) liveDeductionsItem.classList.add("hidden");
-                if (liveProspectsItem) liveProspectsItem.classList.add("hidden");
-                
-                const labelDeps = document.getElementById("label-dependents");
-                if (labelDeps) {
-                    labelDeps.innerHTML = "Number of Dependents";
-                }
-                if (dependentsInput) dependentsInput.removeAttribute("required");
-                
-                const futureProspectInput = document.getElementById("future-prospect");
-                if (futureProspectInput) futureProspectInput.removeAttribute("required");
-            } else if (caseType === "death") {
-                deathFields.classList.remove("hidden-section");
-                deathFields.classList.add("show");
-                
-                if (liveDeductionsItem) liveDeductionsItem.classList.remove("hidden");
-                if (liveProspectsItem) liveProspectsItem.classList.remove("hidden");
-                
-                const labelDeps = document.getElementById("label-dependents");
-                if (labelDeps) {
-                    labelDeps.innerHTML = "Number of Dependents <span class=\"req\">*</span>";
-                }
-                if (dependentsInput) dependentsInput.setAttribute("required", "required");
-                
-                const futureProspectInput = document.getElementById("future-prospect");
-                if (futureProspectInput) futureProspectInput.setAttribute("required", "required");
+            const labelDeps = document.getElementById("label-dependents");
+            if (labelDeps) {
+                labelDeps.innerHTML = "Number of Dependents";
             }
+            if (dependentsInput) dependentsInput.removeAttribute("required");
             
-            formActionsBar.classList.remove("hidden-section");
-            formActionsBar.classList.add("show-flex");
+            const futureProspectInput = document.getElementById("future-prospect");
+            if (futureProspectInput) futureProspectInput.removeAttribute("required");
+        } else if (caseType === "death") {
+            deathFields.classList.remove("hidden-section");
+            deathFields.classList.add("show");
             
-            if (liveMetricsCard) {
-                liveMetricsCard.classList.remove("hidden-section");
-                liveMetricsCard.classList.add("show");
+            if (liveDeductionsItem) liveDeductionsItem.classList.remove("hidden");
+            if (liveProspectsItem) liveProspectsItem.classList.remove("hidden");
+            
+            const labelDeps = document.getElementById("label-dependents");
+            if (labelDeps) {
+                labelDeps.innerHTML = "Number of Dependents <span class=\"req\">*</span>";
             }
-            if (evaluatorCard) {
-                evaluatorCard.classList.remove("hidden-section");
-                evaluatorCard.classList.add("show");
-            }
+            if (dependentsInput) dependentsInput.setAttribute("required", "required");
             
-            updateLiveCalculations();
-        }, 150);
+            const futureProspectInput = document.getElementById("future-prospect");
+            if (futureProspectInput) futureProspectInput.setAttribute("required", "required");
+        }
+        
+        formActionsBar.classList.remove("hidden-section");
+        formActionsBar.classList.add("show-flex");
+        
+        if (liveMetricsCard) {
+            liveMetricsCard.classList.remove("hidden-section");
+            liveMetricsCard.classList.add("show");
+        }
+        if (evaluatorCard) {
+            evaluatorCard.classList.remove("hidden-section");
+            evaluatorCard.classList.add("show");
+        }
+        
+        updateLiveCalculations();
     });
+
+    // Trigger change event dynamically to handle browser auto-restored values on page refresh
+    if (caseTypeSelect && caseTypeSelect.value) {
+        caseTypeSelect.dispatchEvent(new Event("change"));
+    }
 
     // DOB & Date of Accident -> Calculated Age
     function calculateAge(dobStr, doaStr) {
