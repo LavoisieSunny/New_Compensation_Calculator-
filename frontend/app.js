@@ -863,14 +863,16 @@ document.addEventListener("DOMContentLoaded", () => {
                     <p>No legal PDFs uploaded yet. Drag and drop PDF claim judgments above to begin centralized vector storage.</p>
                 </div>
             `;
-            queueBadge.classList.add("hidden");
+            if (queueBadge) queueBadge.classList.add("hidden");
             queueCountLabel.textContent = "0 Files";
             return;
         }
 
         batchFileList.innerHTML = "";
-        queueBadge.classList.remove("hidden");
-        queueBadge.textContent = fileQueue.length;
+        if (queueBadge) {
+            queueBadge.classList.remove("hidden");
+            queueBadge.textContent = fileQueue.length;
+        }
         queueCountLabel.textContent = `${fileQueue.length} Files`;
 
         fileQueue.forEach(file => {
@@ -1239,23 +1241,28 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             // Display loading loader inside evaluator card body
-            evaluatorCardBody.innerHTML = `
-                <div class="empty-state" style="padding: 10px 0;">
-                    <i class="fa-solid fa-spinner fa-spin fa-2x" style="color: var(--color-primary);"></i>
-                    <p>Generating query embeddings & fetching precedents from Qdrant vector database...</p>
-                </div>
-            `;
+            if (evaluatorCardBody) {
+                evaluatorCardBody.innerHTML = `
+                    <div class="empty-state" style="padding: 10px 0;">
+                        <i class="fa-solid fa-spinner fa-spin fa-2x" style="color: var(--color-primary);"></i>
+                        <p>Generating query embeddings & fetching precedents from Qdrant vector database...</p>
+                    </div>
+                `;
+            }
 
-            const caseType = caseTypeSelect.value;
             const payload = {
                 params: {
-                    case_type: caseType,
+                    case_type: caseTypeSelect.value,
                     age: parseInt(ageInput.value) || 0,
                     monthly_income: parseFloat(monthlyIncomeInput.value) || 0,
                     dependents: parseInt(dependentsInput.value) || 0,
                     marital_status: maritalStatusSelect.value || "married",
-                    disability: parseFloat(document.getElementById("disability").value) || 0,
-                    name: document.getElementById("name").value || "Claimant"
+                    future_type: parseInt(futureTypeSelect?.value || 2),
+                    future_prospect: parseFloat(document.getElementById("future-prospect")?.value || 0),
+                    consortium: parseFloat(document.getElementById("consortium")?.value || 40000),
+                    funeral_expenses: parseFloat(document.getElementById("funeral-expenses")?.value || 15000),
+                    loss_estate: parseFloat(document.getElementById("loss-estate")?.value || 15000),
+                    disability: parseFloat(document.getElementById("disability")?.value || 0)
                 },
                 calculated_amount: currentCalculationAmount
             };
@@ -1267,9 +1274,13 @@ document.addEventListener("DOMContentLoaded", () => {
                     body: JSON.stringify(payload)
                 });
 
-                if (!response.ok) throw new Error("Evaluation failed");
+                if (!response.ok) throw new Error("Comparative evaluation API error");
                 const data = await response.json();
-                
+
+                if (!data.success || !data.evaluation) {
+                    throw new Error(data.message || "Failed to generate evaluation");
+                }
+
                 renderPrecedentEvaluation(data.evaluation);
 
             } catch (error) {
@@ -1938,6 +1949,8 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    printBtn.addEventListener("click", () => { window.print(); });
+    if (printBtn) {
+        printBtn.addEventListener("click", () => { window.print(); });
+    }
 });> { window.print(); });
 });
