@@ -751,6 +751,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 singlePreviewCard.classList.remove("hidden-section");
                 singlePreviewCard.classList.add("show");
 
+                // Programmatically switch active right pane tab to PDF Preview upon successful upload
+                const pdfTabBtn = document.querySelector('.pane-tab-btn[data-pane-tab="pdf"]');
+                if (pdfTabBtn) {
+                    pdfTabBtn.click();
+                }
+
+                // Programmatically open the AI Assistant slide-over chatbot drawer upon successful upload
+                if (aiAssistantTrigger && slideover && !slideover.classList.contains("open")) {
+                    aiAssistantTrigger.click();
+                }
+
                 // Highlight and show the live metrics and precedents cards
                 if (liveMetricsCard) liveMetricsCard.classList.add("show");
                 if (evaluatorCard) evaluatorCard.classList.add("show");
