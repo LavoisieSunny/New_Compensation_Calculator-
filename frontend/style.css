@@ -55,19 +55,7 @@ body {
     background-image: var(--gradient-dark);
 }
 
-/* Glowing circles in background */
-.bg-glow {
-    position: fixed;
-    width: 60vw;
-    height: 60vw;
-    border-radius: 50%;
-    filter: blur(160px);
-    z-index: -1;
-    pointer-events: none;
-    opacity: 0.25;
-}
-.bg-glow-1 { top: -20vw; right: -10vw; background: radial-gradient(circle, var(--color-primary) 0%, rgba(0,0,0,0) 70%); }
-.bg-glow-2 { bottom: -20vw; left: -10vw; background: radial-gradient(circle, var(--color-secondary) 0%, rgba(0,0,0,0) 70%); }
+/* Background neon circles removed for clean judicial aesthetic */
 
 /* ==========================================================================
    ENTERPRISE GRID SIDEBAR LAYOUT
@@ -109,10 +97,7 @@ body {
 
 .brand-icon {
     font-size: 2rem;
-    background: var(--gradient-primary);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 8px rgba(0, 242, 254, 0.4));
+    color: var(--color-secondary);
 }
 
 .brand-text h1 {
@@ -637,13 +622,13 @@ select.low-confidence-input {
 }
 
 .text-glow-green {
-    color: #34d399 !important;
-    text-shadow: 0 0 10px rgba(52, 211, 153, 0.2);
+    color: var(--color-success) !important;
+    text-shadow: none;
 }
 
 .text-glow-purple {
-    color: #c084fc !important;
-    text-shadow: 0 0 12px rgba(192, 132, 252, 0.3);
+    color: var(--color-primary) !important;
+    text-shadow: none;
     font-size: 1.35rem !important;
     font-weight: 800 !important;
 }
@@ -1417,21 +1402,17 @@ select.low-confidence-input {
 
 .hero-amount {
     font-family: 'Outfit', sans-serif;
-    font-size: 2.5rem;
+    font-size: 2.8rem;
     font-weight: 800;
-    color: var(--text-primary);
+    color: var(--color-primary);
     line-height: 1.1;
-    background: var(--gradient-primary);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 2px 10px rgba(0, 242, 254, 0.3));
 }
 
 .hero-tag {
     font-size: 0.72rem;
     padding: 3px 10px;
-    background: rgba(0, 242, 254, 0.1);
-    border: 1px solid rgba(0, 242, 254, 0.25);
+    background: rgba(11, 58, 114, 0.08);
+    border: 1px solid rgba(11, 58, 114, 0.15);
     color: var(--color-primary);
     border-radius: 50px;
     font-weight: 600;
@@ -1512,8 +1493,8 @@ select.low-confidence-input {
 }
 
 /* --- UTILS --- */
-.text-glow { text-shadow: 0 0 10px rgba(0, 242, 254, 0.3); }
-.text-glow-purple { text-shadow: 0 0 10px rgba(186, 104, 200, 0.3); }
+.text-glow { text-shadow: none; }
+.text-glow-purple { text-shadow: none; }
 .hidden { display: none !important; }
 .fade-in { animation: fadeIn var(--transition-fast) forwards; }
 
@@ -1604,7 +1585,7 @@ select.low-confidence-input {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(11, 18, 36, 0.8);
+    background: rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(10px);
     z-index: 100;
     display: flex;
@@ -1618,11 +1599,10 @@ select.low-confidence-input {
 .spinner-glow {
     width: 50px;
     height: 50px;
-    border: 4px solid rgba(0, 242, 254, 0.1);
+    border: 4px solid rgba(11, 58, 114, 0.1);
     border-top: 4px solid var(--color-primary);
     border-radius: 50%;
     animation: spin 1s linear infinite;
-    filter: drop-shadow(0 0 8px var(--color-primary));
 }
 
 @keyframes spin {
@@ -1635,16 +1615,15 @@ select.low-confidence-input {
     font-size: 1rem;
     font-weight: 600;
     color: var(--color-primary);
-    text-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
 }
 
 /* ==========================================================================
    LEGAL AI SUMMARY BRIEFING STYLE RULES
    ========================================================================== */
 #legal-ai-summary-card {
-    border: 1px solid rgba(168, 85, 247, 0.2);
-    background: linear-gradient(135deg, rgba(20, 30, 58, 0.8) 0%, rgba(11, 18, 36, 0.9) 100%);
-    box-shadow: 0 8px 32px rgba(168, 85, 247, 0.08), var(--shadow-premium);
+    border: 1px solid var(--border-glass);
+    background: var(--bg-panel);
+    box-shadow: var(--shadow-premium);
     position: relative;
     overflow: hidden;
     transition: all var(--transition-slow);
@@ -1657,20 +1636,20 @@ select.low-confidence-input {
     left: 0;
     width: 100%;
     height: 3px;
-    background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
+    background: linear-gradient(90deg, var(--color-primary), var(--color-secondary));
     opacity: 0.8;
 }
 
 #legal-ai-summary-card h3 i.text-purple {
     color: var(--color-accent) !important;
-    text-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
+    text-shadow: none;
 }
 
 .legal-summary-section {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    background: rgba(15, 23, 42, 0.35);
+    background: var(--bg-card);
     border: 1px solid var(--border-glass);
     border-radius: var(--radius-sm);
     padding: 12px 14px;
@@ -1679,8 +1658,8 @@ select.low-confidence-input {
 
 .legal-summary-section:hover {
     transform: translateY(-2px);
-    border-color: rgba(168, 85, 247, 0.25);
-    background: rgba(15, 23, 42, 0.50);
+    border-color: var(--color-primary);
+    background: var(--bg-panel);
 }
 
 .legal-summary-title {
@@ -1730,9 +1709,9 @@ select.low-confidence-input {
    EXTRACTED COMPENSATION TABLE STYLE RULES
    ========================================================================== */
 #compensation-table-card {
-    border: 1px solid rgba(16, 185, 129, 0.2);
-    background: linear-gradient(135deg, rgba(20, 30, 58, 0.8) 0%, rgba(11, 18, 36, 0.9) 100%);
-    box-shadow: 0 8px 32px rgba(16, 185, 129, 0.08), var(--shadow-premium);
+    border: 1px solid var(--border-glass);
+    background: var(--bg-panel);
+    box-shadow: var(--shadow-premium);
     position: relative;
     overflow: hidden;
     transition: all var(--transition-slow);
@@ -1745,13 +1724,13 @@ select.low-confidence-input {
     left: 0;
     width: 100%;
     height: 3px;
-    background: linear-gradient(90deg, var(--color-success), var(--color-primary));
+    background: var(--color-success);
     opacity: 0.8;
 }
 
 #compensation-table-card h3 i.text-green {
     color: var(--color-success) !important;
-    text-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+    text-shadow: none;
 }
 
 .extracted-table-container {
@@ -1768,7 +1747,7 @@ select.low-confidence-input {
     justify-content: space-between;
     align-items: center;
     padding: 10px 14px;
-    background: rgba(15, 23, 42, 0.35);
+    background: rgba(255, 255, 255, 0.5);
     border-bottom: 1px solid var(--border-glass);
     transition: background var(--transition-fast);
 }
@@ -1778,12 +1757,12 @@ select.low-confidence-input {
 }
 
 .extracted-table-row:hover {
-    background: rgba(15, 23, 42, 0.55);
+    background: rgba(15, 23, 42, 0.02);
 }
 
 .extracted-table-row.total-row {
-    background: rgba(16, 185, 129, 0.08) !important;
-    border-top: 2px solid rgba(16, 185, 129, 0.3);
+    background: rgba(22, 163, 74, 0.05) !important;
+    border-top: 2px solid rgba(22, 163, 74, 0.2);
     font-weight: 700;
 }
 
@@ -1798,13 +1777,13 @@ select.low-confidence-input {
     font-size: 0.88rem;
     font-weight: 700;
     color: var(--color-success);
-    text-shadow: 0 0 5px rgba(16, 185, 129, 0.2);
+    text-shadow: none;
 }
 
 .extracted-table-row.total-row .extracted-table-amount {
     font-size: 0.95rem;
     color: var(--color-primary);
-    text-shadow: 0 0 8px rgba(0, 242, 254, 0.3);
+    text-shadow: none;
 }
 
 /* AI Document Intelligence extraction badges & tooltips */
@@ -1896,8 +1875,8 @@ select.low-confidence-input {
 
 /* Glassmorphic colors in tooltip values */
 .text-glow-purple {
-    color: #c084fc !important;
-    text-shadow: 0 0 6px rgba(168, 85, 247, 0.4);
+    color: var(--color-primary) !important;
+    text-shadow: none;
 }
 
 /* ==========================================================================
@@ -2126,33 +2105,7 @@ select.low-confidence-input {
     background: linear-gradient(90deg, var(--color-warning) 0%, var(--color-danger) 100%);
 }
 
-/* Form OCR Loading Spinner */
-.form-ocr-loader {
-    position: absolute;
-    inset: 0;
-    z-index: 50;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    background: rgba(11, 18, 36, 0.92);
-    backdrop-filter: blur(10px);
-    border-radius: var(--radius-md);
-}
 
-.spinner-glow {
-    width: 48px;
-    height: 48px;
-    border: 3px solid rgba(0, 242, 254, 0.15);
-    border-top-color: var(--color-primary);
-    border-radius: 50%;
-    animation: spinGlow 0.8s linear infinite;
-}
-
-@keyframes spinGlow {
-    to { transform: rotate(360deg); }
-}
 
 /* ==========================================================================
    FULL-SCREEN WORKSTATION OVERLAY & SLIDE-OVER PANEL STYLE RULES
@@ -2172,17 +2125,15 @@ select.low-confidence-input {
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: rgba(15, 23, 42, 0.65);
+    background: var(--color-primary);
     border: 1px solid var(--border-glass);
-    backdrop-filter: blur(15px);
-    -webkit-backdrop-filter: blur(15px);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    color: var(--text-primary);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    color: #ffffff;
+    box-shadow: 0 4px 16px rgba(11, 58, 114, 0.2);
+    transition: all var(--transition-normal);
 }
 
 .floating-tool-btn i {
@@ -2191,9 +2142,9 @@ select.low-confidence-input {
 }
 
 .floating-tool-btn:hover {
-    background: rgba(0, 242, 254, 0.12);
-    border-color: var(--color-primary);
-    box-shadow: 0 0 15px rgba(0, 242, 254, 0.45);
+    background: var(--color-secondary);
+    border-color: var(--color-secondary);
+    box-shadow: 0 4px 20px rgba(197, 155, 39, 0.35);
     transform: translateY(-2px) scale(1.08);
 }
 
@@ -2202,13 +2153,13 @@ select.low-confidence-input {
 }
 
 .floating-tool-btn.active {
-    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-    border-color: var(--color-primary);
-    box-shadow: 0 0 18px rgba(0, 242, 254, 0.55);
+    background: var(--color-secondary);
+    border-color: var(--color-secondary);
+    box-shadow: 0 4px 20px rgba(197, 155, 39, 0.45);
 }
 
 .floating-tool-btn.active i {
-    color: #0b1224 !important;
+    color: #ffffff !important;
     text-shadow: none !important;
 }
 
@@ -2247,7 +2198,6 @@ select.low-confidence-input {
     font-size: 1.15rem;
     font-weight: 700;
     color: var(--text-primary);
-    text-shadow: 0 0 12px rgba(0, 242, 254, 0.25);
     margin: 0;
 }
 
