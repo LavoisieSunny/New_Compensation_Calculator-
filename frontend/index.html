@@ -705,7 +705,6 @@
                     </div>
                 </div>
             </div>
-
         </div>
 
         <!-- ==========================================
@@ -714,7 +713,7 @@
         <div id="results-modal" class="modal">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2><i class="fa-solid fa-money-check-dollar-pen text-glow"></i> Compensation Award Summary</h2>
+                    <h2><i class="fa-solid fa-gavel text-glow"></i> Compensation Award Summary</h2>
                     <button type="button" id="close-modal-btn" class="close-btn">&times;</button>
                 </div>
                 
@@ -723,7 +722,7 @@
                 </div>
                 
                 <!-- Explicit final-compensation container required by Task 10 -->
-                <div style="text-align: center; padding: 15px; background: rgba(52, 211, 153, 0.1); border-top: 1px solid var(--border-glass);">
+                <div style="text-align: center; padding: 15px; background: rgba(11, 58, 114, 0.05); border-top: 1px solid var(--border-glass);">
                     <span style="font-size: 0.85rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;">Calculated Settlement Value:</span>
                     <div id="final-compensation" style="font-size: 2.2rem; font-weight: 800; color: var(--color-success); font-family: 'Outfit', sans-serif;">₹ 0</div>
                 </div>
@@ -767,58 +766,36 @@
             </div>
             <div class="slideover-body" style="height: calc(100% - 70px); padding: 20px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto;">
                 
-                <!-- 1. Case Brief Panel -->
-                <div class="assistant-case-brief-card" id="assistant-case-brief-card">
-                    <div style="font-family: 'Outfit', sans-serif; font-weight: 700; color: var(--color-primary); font-size: 0.9rem; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
-                        <i class="fa-solid fa-briefcase"></i> Automatic Case Brief
-                    </div>
-                    <div id="assistant-case-brief-content" style="font-size: 0.8rem; line-height: 1.5; color: var(--text-secondary);">
-                        Awaiting judgment PDF upload or workstation variables...
-                    </div>
-                </div>
-
-                <!-- 2. Suggested Questions Grid -->
+                <!-- 1. Suggested Questions Grid -->
                 <div id="assistant-suggested-section" style="margin-bottom: 5px;">
                     <div style="font-family: 'Outfit', sans-serif; font-weight: 700; color: var(--text-secondary); font-size: 0.82rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
                         Suggested Questions
                     </div>
-                    <div class="assistant-suggested-grid">
-                        <button type="button" class="suggested-question-pill" data-question="Summarize this case">
-                            <i class="fa-solid fa-circle-question"></i> Summarize this case
+                    <div class="assistant-suggested-grid" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button type="button" class="suggested-question-pill" data-question="Summarize this case" style="flex: 1; min-width: 120px; display: inline-flex; justify-content: center; padding: 10px 14px; font-weight: 600;">
+                            <i class="fa-solid fa-circle-question"></i> Summarize Case
                         </button>
-                        <button type="button" class="suggested-question-pill" data-question="Is compensation correct?">
+                        <button type="button" class="suggested-question-pill" data-question="Is compensation correct?" style="flex: 1; min-width: 120px; display: inline-flex; justify-content: center; padding: 10px 14px; font-weight: 600;">
                             <i class="fa-solid fa-circle-question"></i> Is compensation correct?
-                        </button>
-                        <button type="button" class="suggested-question-pill" data-question="Explain multiplier selection">
-                            <i class="fa-solid fa-circle-question"></i> Explain multiplier selection
-                        </button>
-                        <button type="button" class="suggested-question-pill" data-question="What compensation heads are included?">
-                            <i class="fa-solid fa-circle-question"></i> What compensation heads are included?
-                        </button>
-                        <button type="button" class="suggested-question-pill" data-question="Can compensation be enhanced?">
-                            <i class="fa-solid fa-circle-question"></i> Can compensation be enhanced?
-                        </button>
-                        <button type="button" class="suggested-question-pill" data-question="What precedents were cited?">
-                            <i class="fa-solid fa-circle-question"></i> What precedents were cited?
                         </button>
                     </div>
                 </div>
 
-                <!-- 3. Unified AI Chat Interface -->
-                <div class="assistant-chat-container" style="display: flex; flex-direction: column; flex: 1; min-height: 300px; gap: 10px;">
+                <!-- 2. Unified AI Chat Interface -->
+                <div class="assistant-chat-container" style="display: flex; flex-direction: column; flex: 1; min-height: 460px; gap: 10px;">
                     <div style="font-family: 'Outfit', sans-serif; font-weight: 700; color: var(--text-secondary); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px;">
                         Interactive Audit Chat
                     </div>
-                    <div id="assistant-chat-messages" class="chat-messages" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; background: rgba(10, 15, 30, 0.45); border-radius: var(--radius-sm); border: 1px solid var(--border-glass); min-height: 200px;">
+                    <div id="assistant-chat-messages" class="chat-messages" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; background: var(--bg-card); border-radius: var(--radius-sm); border: 1px solid var(--border-glass); min-height: 380px;">
                         <div class="chat-bubble bot">
                             <div class="chat-avatar"><i class="fa-solid fa-robot"></i></div>
                             <div class="chat-text">
-                                Hello! I am your AI Legal Assistant. Upload a PDF or click questions above to start auditing the workstation state!
+                                Hello! I am your AI Legal Assistant. Click questions above to start auditing the workstation state!
                             </div>
                         </div>
                     </div>
                     <div class="assistant-chat-input-bar" style="display: flex; gap: 8px; margin-top: auto;">
-                        <input type="text" id="assistant-chat-input" placeholder="Ask AI about this case..." autocomplete="off" style="flex: 1; padding: 10px 14px; background: rgba(10, 15, 30, 0.7); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); color: var(--text-primary); outline: none;">
+                        <input type="text" id="assistant-chat-input" placeholder="Ask AI about this case..." autocomplete="off" style="flex: 1; padding: 10px 14px; background: var(--bg-panel); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); color: var(--text-primary); outline: none;">
                         <button type="button" id="assistant-chat-send-btn" class="btn btn-primary" style="padding: 10px 16px;"><i class="fa-solid fa-paper-plane"></i></button>
                     </div>
                 </div>
@@ -828,7 +805,7 @@
 
         <!-- Beautiful, premium modal for reading chats in a large box -->
         <div id="chat-read-modal" class="modal">
-            <div class="modal-content" style="max-width: 850px; background: rgba(11, 20, 38, 0.95); backdrop-filter: blur(20px);">
+            <div class="modal-content" style="max-width: 850px; background: var(--bg-panel); backdrop-filter: blur(20px);">
                 <div class="modal-header" style="border-bottom: 1px solid var(--border-glass);">
                     <h2><i class="fa-solid fa-comments text-glow"></i> Detailed Message View</h2>
                     <button type="button" id="close-chat-modal-btn" class="close-btn">&times;</button>

@@ -2,32 +2,33 @@
    COMPENSATION CALCULATOR WORKSTATION - ADVANCED STYLE SHEET
    ========================================================================== */
 
-/* --- CORE Harmonious Theme Colors --- */
+/* --- CORE Harmonious Theme Colors (Judicial Light Theme matching portal.mphc.gov.in) --- */
 :root {
-    --bg-main: hsl(225, 45%, 6%);
-    --bg-sidebar: hsl(225, 48%, 4%);
-    --bg-panel: rgba(11, 18, 36, 0.85);
-    --bg-card: rgba(20, 30, 58, 0.75);
+    --bg-main: #f1f5f9; /* Premium Light Slate - clean workspace background */
+    --bg-sidebar: #0f172a; /* Sleek Dark Slate for high-fidelity sidebar contrast */
+    --bg-panel: #ffffff; /* Crisp Pure White panel backings */
+    --bg-card: #f8fafc; /* Very soft slate tint for cards */
     
-    --border-glass: rgba(255, 255, 255, 0.08);
-    --border-focus: hsl(190, 100%, 50%);
+    --border-glass: rgba(15, 23, 42, 0.08); /* Modern subtle slate border */
+    --border-focus: #0b3a72; /* Official MPHC Deep Navy focus border */
     
-    --text-primary: hsl(210, 40%, 98%);
-    --text-secondary: hsl(215, 25%, 78%);
-    --text-muted: hsl(217, 16%, 58%);
+    --text-primary: #0f172a; /* Rich dark Slate for pristine readability */
+    --text-secondary: #334155; /* Slate 700 - subtitles & descriptions */
+    --text-muted: #64748b; /* Slate 500 - placeholder and subtle indicators */
     
-    --color-primary: hsl(192, 100%, 47%);
-    --color-secondary: hsl(265, 90%, 65%);
-    --color-success: hsl(145, 80%, 45%);
-    --color-danger: hsl(355, 85%, 60%);
-    --color-warning: hsl(38, 95%, 55%);
-    --color-accent: hsl(280, 100%, 65%);
+    --color-primary: #0b3a72; /* Official MPHC Deep Navy Blue Accent */
+    --color-secondary: #c59b27; /* Official MPHC Judicial Gold Accent */
+    --color-success: #15803d; /* Soft rich green for active success indicators */
+    --color-danger: #b91c1c; /* Deep red for alerts and mandatory asterisks */
+    --color-warning: #d97706; /* Rich amber for warm alerts */
+    --color-accent: #0b3a72; /* Deep Navy accent */
     
-    --gradient-primary: linear-gradient(135deg, hsl(192, 100%, 47%) 0%, hsl(265, 90%, 65%) 100%);
-    --gradient-dark: radial-gradient(circle at 50% 50%, hsl(225, 45%, 9%) 0%, hsl(225, 45%, 4%) 100%);
+    --gradient-primary: linear-gradient(135deg, #0b3a72 0%, #1e3a8a 100%);
+    --gradient-dark: linear-gradient(185deg, #f1f5f9 0%, #e2e8f0 100%);
     
-    --shadow-premium: 0 20px 50px rgba(0, 0, 0, 0.6);
-    --shadow-neon: 0 0 20px rgba(0, 242, 254, 0.25);
+    --shadow-premium: 0 10px 30px rgba(15, 23, 42, 0.06);
+    --shadow-neon: 0 0 15px rgba(11, 58, 114, 0.08); /* Soft Navy glow */
+    --shadow-inset: inset 0 2px 4px rgba(0, 0, 0, 0.02);
     
     --radius-sm: 8px;
     --radius-md: 14px;
@@ -235,7 +236,7 @@ body {
 }
 
 .main-header {
-    background: rgba(13, 20, 38, 0.3);
+    background: rgba(255, 255, 255, 0.45);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--border-glass);
     padding: 20px 32px;
@@ -2212,21 +2213,21 @@ select.low-confidence-input {
 }
 
 .slideover-panel {
-    position: absolute;
+    position: fixed;
     right: 0;
     top: 0;
-    height: 100%;
+    height: 100vh;
     width: 420px;
-    z-index: 100;
-    background: rgba(11, 18, 36, 0.88);
+    z-index: 1000;
+    background: rgba(255, 255, 255, 0.95);
     border-left: 1px solid var(--border-glass);
     backdrop-filter: blur(25px);
     -webkit-backdrop-filter: blur(25px);
-    box-shadow: -10px 0 35px rgba(0, 0, 0, 0.5);
+    box-shadow: -10px 0 40px rgba(15, 23, 42, 0.12);
     display: flex;
     flex-direction: column;
     transform: translateX(100%);
-    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .slideover-panel.open {
