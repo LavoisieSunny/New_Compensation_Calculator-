@@ -288,6 +288,8 @@ body {
     gap: 24px;
     height: 100%;
     width: 100%;
+    flex: 1;
+    min-height: 0;
 }
 
 .workspace-grid.split-55-45 {
@@ -302,7 +304,7 @@ body {
     grid-template-columns: 0.8fr 1.2fr;
 }
 
-@media (max-width: 800px) {
+@media (max-width: 480px) {
     .workspace-grid.split-55-45,
     .workspace-grid.split-50-50,
     .workspace-grid.split-40-60 {
