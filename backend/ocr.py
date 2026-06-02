@@ -66,7 +66,7 @@ def get_ocr_instance():
         try:
             logger.info("Initializing PaddleOCR Singleton (disabling MKLDNN to avoid PIR crashes)...")
             from paddleocr import PaddleOCR
-            _ocr_instance = PaddleOCR(lang='en', enable_mkldnn=False)
+            _ocr_instance = PaddleOCR(lang='en', enable_mkldnn=False, use_angle_cls=False)
             OCR_INITIALIZED = True
             logger.info("PaddleOCR Singleton successfully loaded!")
         except Exception as e:
@@ -698,8 +698,7 @@ def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: in
         def run_paddle():
             engine = get_ocr_instance()
             if engine:
-                # cls=False disables Angle Classifier for court documents
-                return engine.ocr(img_array, cls=False)
+                return engine.ocr(img_array)
             return None
 
         paddle_success = False
@@ -1110,7 +1109,7 @@ def perform_ocr_on_image(file_path: str) -> tuple:
         def run_paddle():
             engine = get_ocr_instance()
             if engine:
-                return engine.ocr(img_array, cls=False)
+                return engine.ocr(img_array)
             return None
             
         try:
