@@ -31,11 +31,10 @@ router = APIRouter()
 
 # Configurable OCR Options (Phase 1 stabilization)
 OCR_PRIMARY_ENGINE = os.getenv("OCR_PRIMARY_ENGINE", "paddle").lower()  # 'paddle' or 'tesseract'
-OCR_SCALE = float(os.getenv("OCR_SCALE", "2.5"))  # 2.5 is ~180 DPI, extremely stable & accurate!
-OCR_RENDER_DPI = int(os.getenv("OCR_RENDER_DPI", "150"))
+OCR_RENDER_DPI = int(os.getenv("OCR_RENDER_DPI", "180"))
 OCR_PAGE_TIMEOUT = float(os.getenv("OCR_PAGE_TIMEOUT", "60"))
 OCR_MAX_PAGES_FIRST_PASS = int(os.getenv("OCR_MAX_PAGES_FIRST_PASS", "10"))
-OCR_RETRY_DPI = int(os.getenv("OCR_RETRY_DPI", "200"))
+OCR_RETRY_DPI = int(os.getenv("OCR_RETRY_DPI", "216"))
 DEBUG_OCR = os.getenv("DEBUG_OCR", "false").lower() == "true"
 
 # Global PaddleOCR instance (lazy initialized cached singleton)
@@ -147,19 +146,19 @@ def extract_alternate_pdf_text(file_path: str) -> list:
     try:
         import fitz
         logger.info("Alternate OCR/Extraction: Running PyMuPDF (fitz)...")
-        doc = fitz.open(file_path)
-        pymupdf_lines = []
-        for i, page in enumerate(doc):
-            pymupdf_lines.append(f"--- PAGE {i+1} ---")
-            text = page.get_text()
-            if text:
-                for line in text.split("\n"):
-                    line = line.strip()
-                    if line:
-                        pymupdf_lines.append(line)
-        if len(pymupdf_lines) > 20:
-            logger.info(f"PyMuPDF extraction successful: found {len(pymupdf_lines)} lines.")
-            text_lines = pymupdf_lines
+        with fitz.open(file_path) as doc:
+            pymupdf_lines = []
+            for i, page in enumerate(doc):
+                pymupdf_lines.append(f"--- PAGE {i+1} ---")
+                text = page.get_text()
+                if text:
+                    for line in text.split("\n"):
+                        line = line.strip()
+                        if line:
+                            pymupdf_lines.append(line)
+            if len(pymupdf_lines) > 20:
+                logger.info(f"PyMuPDF extraction successful: found {len(pymupdf_lines)} lines.")
+                text_lines = pymupdf_lines
     except Exception as e:
         logger.warning(f"Alternate OCR/Extraction PyMuPDF failed: {str(e)}")
 
@@ -263,7 +262,7 @@ def guard_and_downscale_image(pil_img):
 # SAFE PREPROCESSING — LIGHTWEIGHT
 # ======================================================
 
-def preprocess_image_light(pil_img, binarize=True):
+def preprocess_image_light(pil_img, binarize=False):
     """
     Minimal and lightweight preprocessing to prevent massive array allocations.
     Applies only: Grayscale conversion, Light Gaussian denoise, CLAHE, Otsu threshold.
@@ -366,6 +365,26 @@ def extract_text_lines_from_paddle_result(result) -> list:
                     text_lines.append(line[0])
 
     return [l.strip() for l in text_lines if l and l.strip()]
+
+
+def extract_ocr_boxes_from_paddle_result(result) -> list:
+    """Normalizes raw PaddleOCR results to extract unified bounding box coordinates."""
+    boxes = []
+    if not result or len(result) == 0:
+        return boxes
+    
+    for item in result:
+        if isinstance(item, list):
+            for line in item:
+                if isinstance(line, list) and len(line) > 1 and isinstance(line[1], tuple):
+                    # line[0] is coordinates [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
+                    # line[1] is (text, confidence)
+                    boxes.append({
+                        "box": line[0],
+                        "text": line[1][0],
+                        "confidence": line[1][1]
+                    })
+    return boxes
 
 
 def calculate_paddle_confidence(result) -> float:
@@ -483,53 +502,91 @@ def is_tesseract_available() -> bool:
 
 
 def run_tesseract_fallback(pil_img) -> tuple:
-    """Lightweight fallback OCR using Tesseract (pytesseract)."""
+    """
+    Lightweight fallback OCR using Tesseract (pytesseract).
+    Uses a temporary file inside a try-finally context manager to guarantee cleanup.
+    Returns (text_lines, avg_conf, ocr_boxes).
+    """
     if not is_tesseract_available():
-        return [], 0.0
+        return [], 0.0, []
+    
+    temp_path = None
     try:
         import pytesseract
+        
+        # Save image to a temporary file safely
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+            temp_path = temp_file.name
+            pil_img.save(temp_path)
+            
         try:
-            text_str = pytesseract.image_to_string(pil_img, lang="eng+hin", config="--oem 1 --psm 6")
+            text_str = pytesseract.image_to_string(temp_path, lang="eng+hin", config="--oem 1 --psm 6")
             config_lang = "eng+hin"
         except Exception:
-            text_str = pytesseract.image_to_string(pil_img, lang="eng", config="--oem 1 --psm 6")
+            text_str = pytesseract.image_to_string(temp_path, lang="eng", config="--oem 1 --psm 6")
             config_lang = "eng"
             
         text_lines = [line.strip() for line in text_str.split("\n") if line.strip()]
         
         confidences = []
+        ocr_boxes = []
         try:
-            data = pytesseract.image_to_data(pil_img, lang=config_lang, config="--oem 1 --psm 6", output_type=pytesseract.Output.DICT)
-            if isinstance(data, dict) and 'conf' in data:
-                for c in data['conf']:
-                    try:
-                        val = float(c)
-                        if val >= 0:
-                            confidences.append(val / 100.0)
-                    except ValueError:
+            data = pytesseract.image_to_data(temp_path, lang=config_lang, config="--oem 1 --psm 6", output_type=pytesseract.Output.DICT)
+            if isinstance(data, dict) and 'text' in data:
+                n_boxes = len(data['text'])
+                for i in range(n_boxes):
+                    text = data['text'][i].strip()
+                    if not text:
                         continue
-        except Exception:
-            pass
+                    left = data['left'][i]
+                    top = data['top'][i]
+                    width = data['width'][i]
+                    height = data['height'][i]
+                    conf = float(data['conf'][i]) / 100.0 if 'conf' in data else 1.0
+                    
+                    if conf >= 0.0:
+                        confidences.append(conf)
+                    
+                    # Convert to standard 4-corner box: top-left, top-right, bottom-right, bottom-left
+                    box = [
+                        [left, top],
+                        [left + width, top],
+                        [left + width, top + height],
+                        [left, top + height]
+                    ]
+                    ocr_boxes.append({
+                        "box": box,
+                        "text": text,
+                        "confidence": conf
+                    })
+        except Exception as e:
+            logger.warning(f"Failed to extract Tesseract word boxes: {str(e)}")
         
         avg_conf = float(np.mean(confidences)) if confidences else 0.0
-        return text_lines, avg_conf
+        return text_lines, avg_conf, ocr_boxes
     except Exception as e:
         logger.warning(f"Tesseract fallback failed: {str(e)}")
-        return [], 0.0
+        return [], 0.0, []
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete Tesseract temporary file {temp_path}: {str(e)}")
 
 
 # ======================================================
 # STABILIZED SEQUENTIAL PAGE OCR STAGE
 # ======================================================
 
-def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: int, pdf_path: str = None, dpi: int = 150) -> tuple:
+def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: int, pdf_path: str = None, dpi: int = 180, fitz_text_cache: list = None) -> tuple:
     """
     Performs stable single-pass OCR on a page.
-    1. PYMUPDF Digital Selectable Text Check (TRUST native text first)
+    1. PYMUPDF Digital Selectable Text Check (TRUST native text first via fitz_text_cache or opening doc)
     2. Visual Page Classification (Skip blank / separator pages)
     3. Memory downscale guards for extremely large pages
-    4. Lightweight preprocessing
-    5. Single-pass OCR at specified DPI (with timeout guard)
+    4. Lightweight preprocessing (Grayscale + Contrast Enhancement, binarize=False)
+    5. Single-pass OCR at specified DPI using Direct Numpy Feed and cls=False
     6. Primary / Fallback failover strategy (PaddleOCR -> Tesseract)
     7. Strict page-wise variable deletion and garbage collection
     """
@@ -539,12 +596,14 @@ def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: in
     
     # 1. Native Selectable Text Check
     page_text = ""
-    if pdf_path:
+    if fitz_text_cache and page_idx < len(fitz_text_cache):
+        page_text = fitz_text_cache[page_idx]
+    elif pdf_path:
         try:
             import fitz
-            fitz_doc = fitz.open(pdf_path)
-            if page_idx < len(fitz_doc):
-                page_text = fitz_doc[page_idx].get_text()
+            with fitz.open(pdf_path) as fitz_doc:
+                if page_idx < len(fitz_doc):
+                    page_text = fitz_doc[page_idx].get_text()
         except Exception as e:
             logger.warning(f"PyMuPDF text extraction failed on page {page_num}: {str(e)}")
 
@@ -570,7 +629,8 @@ def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: in
                 "text_length": len(page_text),
                 "quality_score": 1.0,
                 "preprocessing_applied": [],
-                "lines": len(lines)
+                "lines": len(lines),
+                "ocr_boxes": []  # Native selectable PDF pages don't need overlay boxes
             }
             return lines, page_meta
 
@@ -581,7 +641,7 @@ def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: in
         pil_img = render_pdf_page_high_dpi(pdf_path, page_idx, scale=scale) if pdf_path else page_doc.render(scale=scale).to_pil()
     except Exception as e:
         logger.error(f"Failed to render page {page_num} at DPI {dpi}: {str(e)}")
-        return [], {"page": page_num, "engine": "Error", "confidence": 0.0, "lines": 0}
+        return [], {"page": page_num, "engine": "Error", "confidence": 0.0, "lines": 0, "ocr_boxes": []}
 
     # 3. Visual Page Classifier (Skip blank scans)
     classification = classify_scanned_page(pil_img)
@@ -604,14 +664,15 @@ def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: in
             "text_length": 0,
             "quality_score": 0.0,
             "preprocessing_applied": [],
-            "lines": 0
+            "lines": 0,
+            "ocr_boxes": []
         }
 
     # 4. Max Page Memory Guard (Downscale Guard)
     pil_img = guard_and_downscale_image(pil_img)
 
-    # 5. Lightweight Preprocessing
-    processed_img = preprocess_image_light(pil_img, binarize=True)
+    # 5. Lightweight Preprocessing (Apply grayscale + contrast enhancement without hard Otsu binarization)
+    processed_img = preprocess_image_light(pil_img, binarize=False)
     
     # Debug image conditional writes
     save_ocr_debug_image(f"debug_original_{page_num}.png", pil_img)
@@ -619,25 +680,26 @@ def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: in
 
     lines = []
     conf = 0.0
+    ocr_boxes = []
     engine_used = ""
     
     # 6. Primary / Fallback strategy
     if classification == "low-content":
         logger.info(f"Page {page_num}: Classified as low-content. Routing directly to Tesseract.")
         try:
-            lines, conf = run_tesseract_fallback(processed_img)
+            lines, conf, ocr_boxes = run_tesseract_fallback(processed_img)
             engine_used = "Tesseract"
         except Exception as e:
             logger.error(f"Direct Tesseract run failed on page {page_num}: {str(e)}")
     else:
-        logger.info(f"Page {page_num}: Classified as {classification}. Running PaddleOCR primary.")
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
-        processed_img.save(temp_file)
+        logger.info(f"Page {page_num}: Classified as {classification}. Running PaddleOCR primary via Direct Numpy Feed.")
+        img_array = np.array(processed_img)
         
         def run_paddle():
             engine = get_ocr_instance()
             if engine:
-                return engine.ocr(temp_file)
+                # cls=False disables Angle Classifier for court documents
+                return engine.ocr(img_array, cls=False)
             return None
 
         paddle_success = False
@@ -648,6 +710,7 @@ def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: in
             elif result:
                 lines = extract_text_lines_from_paddle_result(result)
                 conf = calculate_paddle_confidence(result)
+                ocr_boxes = extract_ocr_boxes_from_paddle_result(result)
                 if conf == 0.00 and len(lines) >= 15:
                     conf = 0.85
                 
@@ -659,17 +722,12 @@ def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: in
                     logger.info(f"Page {page_num}: PaddleOCR confidence {conf:.2f} below 0.50. Escalating.")
         except Exception as e:
             logger.error(f"PaddleOCR primary failed on page {page_num}: {str(e)}")
-        finally:
-            try:
-                os.unlink(temp_file)
-            except Exception:
-                pass
 
         # 7. Fallback to Tesseract if Paddle failed or low confidence
         if not paddle_success:
             logger.info(f"Page {page_num}: Escalating to Tesseract fallback.")
             try:
-                lines, conf = run_tesseract_fallback(processed_img)
+                lines, conf, ocr_boxes = run_tesseract_fallback(processed_img)
                 engine_used = "Tesseract"
             except Exception as tess_err:
                 logger.error(f"Tesseract fallback failed on page {page_num}: {str(tess_err)}")
@@ -694,8 +752,9 @@ def perform_ocr_page_stable(ocr_engine, page_doc, page_idx: int, total_pages: in
         "confidence": round(conf, 3),
         "text_length": sum(len(l) for l in lines),
         "quality_score": score_ocr_page_quality(lines),
-        "preprocessing_applied": ["grayscale", "adaptive_threshold", "light_denoise"],
-        "lines": len(lines)
+        "preprocessing_applied": ["grayscale", "adaptive_contrast_enhancement", "mild_denoising"],
+        "lines": len(lines),
+        "ocr_boxes": ocr_boxes
     }
     
     return lines, page_meta
@@ -741,6 +800,99 @@ def find_relevant_pages_by_keywords(file_path: str, total_pages: int) -> list:
 
 
 # ======================================================
+# SEARCHABLE OCR PDF GENERATOR
+# ======================================================
+
+def generate_searchable_pdf(file_path: str, page_details: list) -> str:
+    """
+    Generates a searchable PDF by overlaying invisible OCR text (render_mode=3) 
+    on top of the original pages and saves it to frontend/uploads/original_filename_ocr.pdf.
+    Processes page-by-page to prevent RAM spikes and handles all cleanup properly.
+    """
+    try:
+        import fitz
+        
+        # Get filename and prepare output path
+        filename = os.path.basename(file_path)
+        base_name, _ = os.path.splitext(filename)
+        output_filename = f"{base_name}_ocr.pdf"
+        
+        # Safe directory paths
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        uploads_dir = os.path.join(root_dir, "frontend", "uploads")
+        os.makedirs(uploads_dir, exist_ok=True)
+        output_path = os.path.join(uploads_dir, output_filename)
+        
+        logger.info(f"Generating searchable PDF at: {output_path}...")
+        
+        # Map page details by page number (1-based)
+        page_meta_map = {item["page"]: item for item in page_details}
+        
+        with fitz.open(file_path) as doc:
+            for page_num in range(1, len(doc) + 1):
+                page = doc[page_num - 1]
+                meta = page_meta_map.get(page_num)
+                if not meta:
+                    continue
+                
+                # If page is native selectable or has no OCR boxes, skip overlaying
+                engine = meta.get("engine", "")
+                if engine == "PyMuPDF" or engine == "Skipped-blank" or engine == "Error":
+                    continue
+                
+                ocr_boxes = meta.get("ocr_boxes", [])
+                if not ocr_boxes:
+                    continue
+                
+                dpi = meta.get("dpi", 180)
+                scale = dpi / 72.0
+                
+                # Overlay each box on the page
+                for entry in ocr_boxes:
+                    text = entry["text"]
+                    # box coordinates in pixels at render DPI
+                    box = entry["box"]
+                    if not box or len(box) < 4:
+                        continue
+                    
+                    # Convert pixel coordinates to PDF point coordinates (x / scale, y / scale)
+                    x = box[0][0] / scale
+                    y = box[0][1] / scale
+                    
+                    # Estimate font size based on box height in PDF points
+                    box_height = (box[3][1] - box[0][1]) / scale
+                    font_size = max(4.0, min(box_height * 0.8, 48.0))
+                    
+                    # Insert the text invisibly
+                    try:
+                        page.insert_text(
+                            fitz.Point(x, y),
+                            text,
+                            fontsize=font_size,
+                            render_mode=3
+                        )
+                    except Exception:
+                        try:
+                            page.insert_text(
+                                (x, y),
+                                text,
+                                fontsize=font_size,
+                                render_mode=3
+                            )
+                        except Exception:
+                            pass
+                            
+            doc.save(output_path, garbage=3, deflate=True)
+            
+        logger.info(f"Searchable PDF generated successfully: {output_path}")
+        return f"/uploads/{output_filename}"
+        
+    except Exception as e:
+        logger.error(f"Failed to generate searchable PDF: {str(e)}")
+        return ""
+
+
+# ======================================================
 # SCANNED PDF OCR PIPELINE
 # ======================================================
 
@@ -748,9 +900,9 @@ def perform_ocr_on_scanned_pdf(file_path: str, progress_callback=None, scan_all_
     """
     Sequentially renders and processes pages of a scanned PDF.
     Implements a strict multi-pass memory-managed strategy:
-    Pass 1: Render and process first 10 pages at 150 DPI.
-    Pass 2: If page quality is poor/failed, retry only those pages at 200 DPI.
-    Remaining Pages: Sequentially processed at 150 DPI.
+    Pass 1: Render and process first 10 pages at 180 DPI.
+    Pass 2: If page quality is poor/failed, retry only those pages at 216 DPI.
+    Remaining Pages: Sequentially processed at 180 DPI.
     """
     ocr_engine = get_ocr_instance()
 
@@ -762,28 +914,39 @@ def perform_ocr_on_scanned_pdf(file_path: str, progress_callback=None, scan_all_
             fallback_ocr_engine="none", text_density_score=0.0
         )
 
+    doc = None
     try:
+        # Pre-cache digital selectable text using PyMuPDF (fitz) opened only once!
+        fitz_text_cache = []
+        try:
+            import fitz
+            with fitz.open(file_path) as fitz_doc:
+                for page in fitz_doc:
+                    fitz_text_cache.append(page.get_text())
+        except Exception as e:
+            logger.warning(f"Failed to pre-extract digital text with PyMuPDF: {e}")
+
         doc = pdfium.PdfDocument(file_path)
         total_pages = len(doc)
         logger.info(f"Scanned PDF '{file_path}' ({total_pages} pages): sequential stable OCR pipeline...")
 
         page_results = {} # page_idx -> (lines, page_meta)
         
-        # --- PASS 1: Process first 10 pages @ 150 DPI ---
+        # --- PASS 1: Process first 10 pages @ 180 DPI ---
         first_pass_limit = min(total_pages, OCR_MAX_PAGES_FIRST_PASS)
-        logger.info(f"--- PASS 1: Scanning first {first_pass_limit} pages @ 150 DPI ---")
+        logger.info(f"--- PASS 1: Scanning first {first_pass_limit} pages @ {OCR_RENDER_DPI} DPI ---")
         
         for idx in range(first_pass_limit):
             page_num = idx + 1
             page_lines, page_meta = perform_ocr_page_stable(
-                ocr_engine, doc[idx], idx, total_pages, pdf_path=file_path, dpi=OCR_RENDER_DPI
+                ocr_engine, doc[idx], idx, total_pages, pdf_path=file_path, dpi=OCR_RENDER_DPI, fitz_text_cache=fitz_text_cache
             )
             page_results[idx] = (page_lines, page_meta)
             
             if progress_callback:
                 progress_callback(int(((idx + 1) / total_pages) * 45))
 
-        # --- PASS 2: Retry failed/poor pages of Pass 1 @ 200 DPI ---
+        # --- PASS 2: Retry failed/poor pages of Pass 1 @ 216 DPI ---
         failed_pages_in_pass1 = []
         for idx in range(first_pass_limit):
             page_lines, page_meta = page_results[idx]
@@ -799,12 +962,12 @@ def perform_ocr_on_scanned_pdf(file_path: str, progress_callback=None, scan_all_
                 failed_pages_in_pass1.append(idx)
 
         if failed_pages_in_pass1:
-            logger.info(f"--- PASS 2: Retrying {len(failed_pages_in_pass1)} poor quality/failed pages @ 200 DPI: {[p+1 for p in failed_pages_in_pass1]} ---")
+            logger.info(f"--- PASS 2: Retrying {len(failed_pages_in_pass1)} poor quality/failed pages @ {OCR_RETRY_DPI} DPI: {[p+1 for p in failed_pages_in_pass1]} ---")
             for idx in failed_pages_in_pass1:
                 page_num = idx + 1
                 logger.info(f"Retrying page {page_num} at {OCR_RETRY_DPI} DPI.")
                 page_lines, page_meta = perform_ocr_page_stable(
-                    ocr_engine, doc[idx], idx, total_pages, pdf_path=file_path, dpi=OCR_RETRY_DPI
+                    ocr_engine, doc[idx], idx, total_pages, pdf_path=file_path, dpi=OCR_RETRY_DPI, fitz_text_cache=fitz_text_cache
                 )
                 
                 # Update only if we got better results
@@ -813,13 +976,13 @@ def perform_ocr_on_scanned_pdf(file_path: str, progress_callback=None, scan_all_
                     page_results[idx] = (page_lines, page_meta)
                     logger.info(f"Page {page_num} successfully updated with higher DPI retry.")
 
-        # --- REMAINDER PASS: Process pages 11+ sequentially @ 150 DPI ---
+        # --- REMAINDER PASS: Process pages 11+ sequentially @ 180 DPI ---
         if total_pages > first_pass_limit:
-            logger.info(f"--- REMAINDER PASS: Scanning pages {first_pass_limit+1} to {total_pages} @ 150 DPI ---")
+            logger.info(f"--- REMAINDER PASS: Scanning pages {first_pass_limit+1} to {total_pages} @ {OCR_RENDER_DPI} DPI ---")
             for idx in range(first_pass_limit, total_pages):
                 page_num = idx + 1
                 page_lines, page_meta = perform_ocr_page_stable(
-                    ocr_engine, doc[idx], idx, total_pages, pdf_path=file_path, dpi=OCR_RENDER_DPI
+                    ocr_engine, doc[idx], idx, total_pages, pdf_path=file_path, dpi=OCR_RENDER_DPI, fitz_text_cache=fitz_text_cache
                 )
                 page_results[idx] = (page_lines, page_meta)
                 
@@ -884,10 +1047,28 @@ def perform_ocr_on_scanned_pdf(file_path: str, progress_callback=None, scan_all_
             raw_ocr_preview="\n".join(text_lines)[:3000],
             pages=page_details
         )
+
+        # Close doc to prevent file handle leak
+        if doc:
+            try:
+                doc.close()
+            except Exception:
+                pass
+
+        # Generate searchable PDF
+        searchable_pdf_url = generate_searchable_pdf(file_path, page_details)
+        if searchable_pdf_url:
+            ocr_debug["searchable_pdf_url"] = searchable_pdf_url
+
         return text_lines, ocr_debug
 
     except Exception as e:
         logger.error(f"Critical error during scanned PDF OCR: {str(e)}")
+        if doc:
+            try:
+                doc.close()
+            except Exception:
+                pass
         return [], _build_ocr_debug(
             engine_used="PaddleOCR", retry_count=0, quality_score=0.0,
             failed_pages=[], successful_pages=[], preprocessing_applied=[],
@@ -915,22 +1096,21 @@ def perform_ocr_on_image(file_path: str) -> tuple:
         original_pil = guard_and_downscale_image(original_pil)
         
         # Lightweight Preprocessing
-        processed_img = preprocess_image_light(original_pil, binarize=True)
+        processed_img = preprocess_image_light(original_pil, binarize=False)
         
         save_ocr_debug_image("debug_original_1.png", original_pil)
         save_ocr_debug_image("debug_processed_1.png", processed_img)
         
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
-        processed_img.save(temp_file)
-        
         lines = []
         conf = 0.0
+        ocr_boxes = []
         engine_used = "PaddleOCR"
         
+        img_array = np.array(processed_img)
         def run_paddle():
             engine = get_ocr_instance()
             if engine:
-                return engine.ocr(temp_file)
+                return engine.ocr(img_array, cls=False)
             return None
             
         try:
@@ -942,21 +1122,17 @@ def perform_ocr_on_image(file_path: str) -> tuple:
             if result:
                 lines = extract_text_lines_from_paddle_result(result)
                 conf = calculate_paddle_confidence(result)
+                ocr_boxes = extract_ocr_boxes_from_paddle_result(result)
                 if conf == 0.00 and len(lines) >= 15:
                     conf = 0.85
         except Exception as e:
             logger.error(f"Image PaddleOCR failed: {str(e)}")
-        finally:
-            try:
-                os.unlink(temp_file)
-            except Exception:
-                pass
 
         # Last-resort Tesseract Fallback
         if (len(lines) == 0 or conf < 0.15) and is_tesseract_available():
             logger.info("Image PaddleOCR returned empty or low confidence. Running last-resort Tesseract fallback.")
             try:
-                lines, conf = run_tesseract_fallback(processed_img)
+                lines, conf, ocr_boxes = run_tesseract_fallback(processed_img)
                 engine_used = "Tesseract"
             except Exception as e:
                 logger.error(f"Tesseract image fallback failed: {str(e)}")
@@ -975,8 +1151,9 @@ def perform_ocr_on_image(file_path: str) -> tuple:
             "confidence": round(conf, 3),
             "text_length": sum(len(l) for l in lines),
             "quality_score": score_ocr_page_quality(lines),
-            "preprocessing_applied": ["grayscale", "adaptive_threshold", "light_denoise"],
-            "lines": len(lines)
+            "preprocessing_applied": ["grayscale", "adaptive_contrast_enhancement", "mild_denoising"],
+            "lines": len(lines),
+            "ocr_boxes": ocr_boxes
         }]
 
         ocr_debug = _build_ocr_debug(
@@ -985,7 +1162,7 @@ def perform_ocr_on_image(file_path: str) -> tuple:
             quality_score=score_ocr_page_quality(lines),
             failed_pages=failed_pages,
             successful_pages=successful_pages,
-            preprocessing_applied=["grayscale", "adaptive_threshold", "light_denoise"],
+            preprocessing_applied=["grayscale", "adaptive_contrast_enhancement", "mild_denoising"],
             fallback_ocr_engine=engine_used if engine_used != "PaddleOCR" else "",
             text_density_score=min(len(lines) / 30.0, 1.0),
             average_page_confidence=conf,
@@ -1331,10 +1508,50 @@ async def upload_batch_pdfs(files: list[UploadFile] = File(...), background_task
 
 @router.get("/batch-status")
 async def get_batch_status():
-    """Returns batch processing queue status updates."""
+    """Returns batch processing queue status updates with heavy payloads sanitized."""
+    sanitized_queue = []
+    for file_id, item in BATCH_QUEUE.items():
+        sanitized_item = {
+            "file_id": item.get("file_id"),
+            "filename": item.get("filename"),
+            "status": item.get("status"),
+            "progress": item.get("progress"),
+            "error": item.get("error"),
+            "suggestions": item.get("suggestions"),
+        }
+        ocr_debug = item.get("ocr_debug")
+        if ocr_debug:
+            sanitized_ocr_debug = {
+                "ocr_engine_used": ocr_debug.get("ocr_engine_used"),
+                "ocr_retry_count": ocr_debug.get("ocr_retry_count"),
+                "ocr_quality_score": ocr_debug.get("ocr_quality_score"),
+                "fallback_ocr_engine": ocr_debug.get("fallback_ocr_engine"),
+                "preprocessing_applied": ocr_debug.get("preprocessing_applied"),
+                "text_density_score": ocr_debug.get("text_density_score"),
+                "average_page_confidence": ocr_debug.get("average_page_confidence"),
+                "searchable_pdf_url": ocr_debug.get("searchable_pdf_url"),
+            }
+            sanitized_item["ocr_debug"] = sanitized_ocr_debug
+        sanitized_queue.append(sanitized_item)
+        
     return {
         "success": True,
-        "queue": list(BATCH_QUEUE.values()),
+        "queue": sanitized_queue,
+    }
+
+
+@router.post("/clear-queue")
+async def clear_queue():
+    """Clears completed or failed items from the batch processing queue to free RAM."""
+    global BATCH_QUEUE
+    to_remove = [file_id for file_id, item in BATCH_QUEUE.items() if item["status"] in ("indexed", "failed")]
+    for file_id in to_remove:
+        del BATCH_QUEUE[file_id]
+    gc.collect()
+    return {
+        "success": True,
+        "message": f"Successfully cleared {len(to_remove)} completed/failed entries from BATCH_QUEUE.",
+        "active_items": len(BATCH_QUEUE)
     }
 
 
