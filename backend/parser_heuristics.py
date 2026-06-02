@@ -848,6 +848,10 @@ def format_suggestions_for_calculator(suggestions):
         if raw_val is None:
             if flat_key == "loss_of_consortium":
                 raw_val = suggestions.get("consortium")
+            elif flat_key == "consortium":
+                raw_val = suggestions.get("loss_of_consortium")
+            elif flat_key == "loss_estate":
+                raw_val = suggestions.get("loss_of_estate")
             elif flat_key == "permanent_disability":
                 raw_val = suggestions.get("disability")
             elif flat_key == "injured_name" or flat_key == "deceased_name":
@@ -886,6 +890,10 @@ def format_suggestions_for_calculator(suggestions):
             "policy_number": get_field_val("policy_number", "policy_number"),
             "vehicle_number": get_field_val("vehicle_number", "vehicle_number"),
             "insurance_company": get_field_val("insurance_company", "insurance_company"),
+            "dependents": get_field_val("dependents", "dependents"),
+            "consortium": get_field_val("consortium", "consortium"),
+            "funeral_expenses": get_field_val("funeral_expenses", "funeral_expenses"),
+            "loss_estate": get_field_val("loss_estate", "loss_estate"),
         }
     else: # injury case
         fields = {
@@ -908,6 +916,7 @@ def format_suggestions_for_calculator(suggestions):
             "policy_number": get_field_val("policy_number", "policy_number"),
             "vehicle_number": get_field_val("vehicle_number", "vehicle_number"),
             "insurance_company": get_field_val("insurance_company", "insurance_company"),
+            "place_of_accident": get_field_val("place_of_accident", "place_of_accident"),
         }
 
     # Extract total compensation
