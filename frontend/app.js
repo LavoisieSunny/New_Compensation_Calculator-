@@ -546,6 +546,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (liveProspects) liveProspects.textContent = `${prospects}%`;
                 if (liveProspectsBar) liveProspectsBar.style.width = `${prospects}%`;
                 
+                // Populate only helper parameters
                 const deathMultInput = document.getElementById("death-multiplier");
                 if (deathMultInput) deathMultInput.value = mult;
                 
@@ -559,36 +560,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 const deathDeductInput = document.getElementById("death-deduction");
                 if (deathDeductInput) deathDeductInput.value = deductionsPercent;
 
-                // Dynamic live calculations
-                const monthlyIncome = parseFloat(monthlyIncomeInput.value) || 0;
-                const futureProspectAmount = monthlyIncome * prospects / 100;
-                const enhancedMonthlyIncome = monthlyIncome + futureProspectAmount;
-                const annualIncome = enhancedMonthlyIncome * 12;
-                const deductionAmount = annualIncome * deductionRatio;
-                const dependencyIncome = annualIncome - deductionAmount;
-                const lossOfDependency = dependencyIncome * mult;
-
-                const consortium = parseFloat(document.getElementById("consortium")?.value) || 40000;
-                const funeral = parseFloat(document.getElementById("funeral-expenses")?.value) || 15000;
-                const lossEstate = parseFloat(document.getElementById("loss-estate")?.value) || 15000;
-                const finalComp = lossOfDependency + consortium + funeral + lossEstate;
-
-                // Populate read-only inputs
-                const lossDepInput = document.getElementById("loss-of-dependency");
-                if (lossDepInput) lossDepInput.value = Math.round(lossOfDependency);
-
-                const finalDeathCompInput = document.getElementById("death-final-compensation");
-                if (finalDeathCompInput) finalDeathCompInput.value = Math.round(finalComp);
-
-                // Populate dynamic dashboard elements
-                if (document.getElementById("live-calc-annual")) {
-                    document.getElementById("live-calc-annual").textContent = formatCurrency(annualIncome);
-                    document.getElementById("live-calc-future").textContent = formatCurrency(enhancedMonthlyIncome);
-                    document.getElementById("live-calc-deduct-pct").textContent = `${deductionsPercent}%`;
-                    document.getElementById("live-calc-deduct-amt").textContent = formatCurrency(deductionAmount);
+                // Populate dynamic dashboard helper elements only (no monetary figures)
+                if (document.getElementById("live-calc-multiplier")) {
                     document.getElementById("live-calc-multiplier").textContent = mult;
-                    document.getElementById("live-calc-dependency").textContent = formatCurrency(lossOfDependency);
-                    document.getElementById("live-calc-total").textContent = formatCurrency(finalComp);
+                }
+                if (document.getElementById("live-calc-deduct-pct")) {
+                    document.getElementById("live-calc-deduct-pct").textContent = `${deductionsPercent}%`;
                 }
 
             } else {
@@ -606,15 +583,14 @@ document.addEventListener("DOMContentLoaded", () => {
             if (liveDeductions) liveDeductions.textContent = "—%";
             if (liveDeductionsBar) liveDeductionsBar.style.width = "0%";
 
-            // Clear dynamic dashboard elements
-            if (caseType === "death" && document.getElementById("live-calc-annual")) {
-                document.getElementById("live-calc-annual").textContent = "—";
-                document.getElementById("live-calc-future").textContent = "—";
-                document.getElementById("live-calc-deduct-pct").textContent = "—";
-                document.getElementById("live-calc-deduct-amt").textContent = "—";
-                document.getElementById("live-calc-multiplier").textContent = "—";
-                document.getElementById("live-calc-dependency").textContent = "—";
-                document.getElementById("live-calc-total").textContent = "—";
+            // Clear dynamic dashboard helper elements only
+            if (caseType === "death") {
+                if (document.getElementById("live-calc-multiplier")) {
+                    document.getElementById("live-calc-multiplier").textContent = "—";
+                }
+                if (document.getElementById("live-calc-deduct-pct")) {
+                    document.getElementById("live-calc-deduct-pct").textContent = "—";
+                }
             }
         }
     }
@@ -732,6 +708,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 // Apply OCR suggestions automatically
                 applyAllOcrSuggestions(data.suggestions);
 
+                // Update OCR Inspector with authentic telemetry data
+                updateOcrInspector(data);
+
                 // Store raw text for AI data recovery
                 currentOcrRawText = data.raw_text || [];
                 if (aiExtractBtn) {
@@ -768,6 +747,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 if (typeof triggerTabNotification === "function") {
                     triggerTabNotification("analysis");
+                    triggerTabNotification("ocr-quality");
                 }
 
                 showToast("Case PDF analyzed! Form auto-filled focusing on Previous Judgment, Petition, and Prayer details. Please manually review fields.", "success");
@@ -949,6 +929,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 const matchedFile = fileQueue.find(f => f.file_id === id);
                 if (matchedFile && matchedFile.suggestions) {
                     applyAllOcrSuggestions(matchedFile.suggestions);
+                    
+                    // Update OCR Inspector tab with telemetry from the batch loaded file
+                    if (matchedFile.ocr_debug) {
+                        updateOcrInspector(matchedFile);
+                        triggerTabNotification("ocr-quality");
+                    }
+                    
                     switchTab("calculator");
                 }
             });
@@ -1010,6 +997,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             fileQueue[localIndex].progress = srvItem.progress;
                             fileQueue[localIndex].suggestions = srvItem.suggestions;
                             fileQueue[localIndex].raw_text = srvItem.raw_text;
+                            fileQueue[localIndex].ocr_debug = srvItem.ocr_debug;
                         }
                     });
 
@@ -1419,6 +1407,12 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        // Validate all required inputs are filled prior to calculations
+        if (!compensationForm.reportValidity()) {
+            showToast("Please fill all mandatory case fields before calculating.", "warning");
+            return;
+        }
+
         const payload = {
             case_type: caseType,
             age: Number(ageInput.value || 0),
@@ -1481,6 +1475,9 @@ document.addEventListener("DOMContentLoaded", () => {
             const breakdown = results.breakdown || results;
             currentCalculationAmount = results.total_compensation || breakdown.final_amount || 0;
             
+            // Update inputs and previews with real calculated money values
+            updateMonetaryOutputs(breakdown);
+            
             renderResultsDashboard(breakdown, payload);
             openModal();
             showToast("Compensation calculated successfully via FastAPI server!", "success");
@@ -1495,6 +1492,10 @@ document.addEventListener("DOMContentLoaded", () => {
             const localResults = calculateCompensationLocally(payload);
             
             currentCalculationAmount = localResults.final_amount;
+            
+            // Update inputs and previews with real calculated money values locally
+            updateMonetaryOutputs(localResults);
+            
             renderResultsDashboard(localResults, payload);
             openModal();
             if (triggerEvalBtn) triggerEvalBtn.disabled = false;
@@ -1574,6 +1575,112 @@ document.addEventListener("DOMContentLoaded", () => {
             currency: 'INR',
             maximumFractionDigits: 0
         }).format(amount);
+    }
+
+    function updateMonetaryOutputs(res) {
+        if (res.case_type === "death") {
+            const annualIncome = res.annual_income || 0;
+            const enhancedMonthlyIncome = res.enhanced_monthly_income || 0;
+            const deductionPercent = res.deduction_percentage || 0;
+            const deductionAmount = res.deduction_amount || 0;
+            const mult = res.multiplier || 0;
+            const lossOfDependency = res.loss_of_dependency || 0;
+            const finalComp = res.final_compensation || res.final_amount || 0;
+
+            // Populate read-only inputs
+            const lossDepInput = document.getElementById("loss-of-dependency");
+            if (lossDepInput) lossDepInput.value = Math.round(lossOfDependency);
+
+            const finalDeathCompInput = document.getElementById("death-final-compensation");
+            if (finalDeathCompInput) finalDeathCompInput.value = Math.round(finalComp);
+
+            // Populate dynamic dashboard elements
+            if (document.getElementById("live-calc-annual")) {
+                document.getElementById("live-calc-annual").textContent = formatCurrency(annualIncome);
+                document.getElementById("live-calc-future").textContent = formatCurrency(enhancedMonthlyIncome);
+                document.getElementById("live-calc-deduct-pct").textContent = `${deductionPercent}%`;
+                document.getElementById("live-calc-deduct-amt").textContent = formatCurrency(deductionAmount);
+                document.getElementById("live-calc-multiplier").textContent = mult;
+                document.getElementById("live-calc-dependency").textContent = formatCurrency(lossOfDependency);
+                document.getElementById("live-calc-total").textContent = formatCurrency(finalComp);
+            }
+        }
+    }
+
+    function updateOcrInspector(data) {
+        if (!data || !data.ocr_debug) return;
+        const debug = data.ocr_debug;
+        
+        // 1. Overall stats
+        const qScore = debug.ocr_quality_score !== undefined ? debug.ocr_quality_score : 0.0;
+        const avgConf = debug.average_page_confidence !== undefined ? debug.average_page_confidence : 0.0;
+        const textDensity = debug.text_density_score !== undefined ? debug.text_density_score : 0.0;
+        
+        const qEl = document.getElementById("ocr-val-quality");
+        if (qEl) qEl.textContent = qScore.toFixed(3);
+        
+        const cEl = document.getElementById("ocr-val-confidence");
+        if (cEl) cEl.textContent = (avgConf * 100).toFixed(1) + "%";
+        
+        const eEl = document.getElementById("ocr-val-engine");
+        if (eEl) eEl.textContent = debug.ocr_engine_used || "Unknown";
+        
+        const fEl = document.getElementById("ocr-val-fallback");
+        if (fEl) fEl.textContent = debug.fallback_ocr_engine || "None";
+        
+        const rEl = document.getElementById("ocr-val-retries");
+        if (rEl) rEl.textContent = debug.ocr_retry_count !== undefined ? debug.ocr_retry_count : 0;
+        
+        const dEl = document.getElementById("ocr-val-density");
+        if (dEl) dEl.textContent = textDensity.toFixed(3);
+        
+        // Update badge
+        const badge = document.getElementById("ocr-inspector-badge");
+        if (badge) {
+            badge.textContent = data.fallback_source || "Loaded";
+            badge.className = "badge tech-badge " + (qScore >= 0.5 ? "bg-success" : "bg-danger");
+        }
+
+        // 2. Raw Text Dump
+        const textDump = document.getElementById("ocr-raw-text-dump");
+        if (textDump && data.raw_text) {
+            textDump.value = data.raw_text.join("\n");
+        }
+
+        // 3. Page Breakdown Table
+        const tableBody = document.getElementById("ocr-pages-table-body");
+        if (tableBody) {
+            if (debug.pages && debug.pages.length > 0) {
+                tableBody.innerHTML = "";
+                debug.pages.forEach(p => {
+                    const tr = document.createElement("tr");
+                    tr.style.borderBottom = "1px solid var(--border-glass)";
+                    
+                    const pageNum = p.page || 1;
+                    const engine = p.engine || "PaddleOCR";
+                    const dpi = p.dpi || 180;
+                    const conf = p.confidence !== undefined ? (p.confidence * 100).toFixed(1) + "%" : "—";
+                    const quality = p.quality_score !== undefined ? p.quality_score.toFixed(3) : "—";
+                    
+                    tr.innerHTML = `
+                        <td style="padding: 8px 12px; font-weight: 600; color: var(--text-primary);">Page ${pageNum}</td>
+                        <td style="padding: 8px 12px; color: var(--text-secondary);">${engine}</td>
+                        <td style="padding: 8px 12px; color: var(--text-secondary);">${dpi} DPI</td>
+                        <td style="padding: 8px 12px; text-align: right; font-family: monospace; color: var(--color-success);">${conf}</td>
+                        <td style="padding: 8px 12px; text-align: right; font-family: monospace; color: var(--color-primary);">${quality}</td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+            } else {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="5" style="padding: 16px; text-align: center; color: var(--text-muted);">
+                            No page details returned.
+                        </td>
+                    </tr>
+                `;
+            }
+        }
     }
 
     function renderResultsDashboard(res, req) {
@@ -1710,6 +1817,12 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("reset-btn").addEventListener("click", () => {
         compensationForm.reset();
         
+        // Clear all live calculated dashboard elements back to hyphens
+        ["live-calc-annual", "live-calc-future", "live-calc-deduct-pct", "live-calc-deduct-amt", "live-calc-multiplier", "live-calc-dependency", "live-calc-total"].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = "—";
+        });
+
         // Clear AI metadata badges
         document.querySelectorAll(".ai-metadata-badge").forEach(el => el.remove());
         
@@ -1795,6 +1908,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const paneTabContents = document.querySelectorAll(".pane-tab-content");
     const benchmarkingTabDot = document.getElementById("benchmarking-tab-dot");
     const analysisTabDot = document.getElementById("analysis-tab-dot");
+    const ocrQualityTabDot = document.getElementById("ocr-quality-tab-dot");
 
     paneTabButtons.forEach(btn => {
         btn.addEventListener("click", () => {
@@ -1831,6 +1945,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 benchmarkingTabDot.classList.add("hidden");
             } else if (targetTab === "analysis" && analysisTabDot) {
                 analysisTabDot.classList.add("hidden");
+            } else if (targetTab === "ocr-quality" && ocrQualityTabDot) {
+                ocrQualityTabDot.classList.add("hidden");
             }
         });
     });
@@ -1848,6 +1964,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 benchmarkingTabDot.classList.remove("hidden");
             } else if (tabName === "analysis" && analysisTabDot) {
                 analysisTabDot.classList.remove("hidden");
+            } else if (tabName === "ocr-quality" && ocrQualityTabDot) {
+                ocrQualityTabDot.classList.remove("hidden");
             }
         }
     };

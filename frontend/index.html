@@ -416,6 +416,10 @@
                                 <i class="fa-solid fa-chart-line" style="color: var(--color-success);"></i> Analysis & Metrics
                                 <span id="analysis-tab-dot" class="notification-dot hidden"></span>
                             </button>
+                            <button type="button" class="pane-tab-btn" data-pane-tab="ocr-quality" style="background: transparent; border: 1px solid transparent; color: var(--text-secondary); padding: 6px 12px; border-radius: var(--radius-sm); font-family: 'Outfit', sans-serif; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all var(--transition-fast); position: relative;">
+                                <i class="fa-solid fa-square-poll-horizontal" style="color: var(--color-warning);"></i> OCR Inspector (Dev)
+                                <span id="ocr-quality-tab-dot" class="notification-dot hidden"></span>
+                            </button>
                         </div>
 
                         <!-- Tab 1 Content: PDF Preview -->
@@ -522,6 +526,82 @@
                                         <i class="fa-solid fa-table-list" style="font-size: 2.5rem; color: #34d399;"></i>
                                         <p style="font-size: 0.8rem; color: var(--text-secondary); text-align: center; margin: 0;">Upload a PDF to view the detailed breakdown of the judicial award heads.</p>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 4 Content: OCR Inspector (Dev) -->
+                        <div id="pane-tab-ocr-quality-content" class="pane-tab-content hidden" style="flex: 1; display: flex; flex-direction: column; gap: 20px; padding: 20px; overflow-y: auto; height: calc(100% - 44px);">
+                            
+                            <!-- OCR Metrics Overview Card -->
+                            <div class="card" id="ocr-metrics-card">
+                                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                    <h3><i class="fa-solid fa-square-poll-horizontal text-glow"></i> OCR Quality Metrics</h3>
+                                    <span class="badge tech-badge" id="ocr-inspector-badge">Ready</span>
+                                </div>
+                                <div class="card-body" style="padding-top: 12px; display: flex; flex-direction: column; gap: 15px;">
+                                    <div class="metrics-grid">
+                                        <div class="metric-item">
+                                            <span class="label">OCR Quality Score</span>
+                                            <span class="value" id="ocr-val-quality">—</span>
+                                        </div>
+                                        <div class="metric-item">
+                                            <span class="label">Avg Page Confidence</span>
+                                            <span class="value" id="ocr-val-confidence">—</span>
+                                        </div>
+                                        <div class="metric-item">
+                                            <span class="label">Primary OCR Engine</span>
+                                            <span class="value" id="ocr-val-engine">—</span>
+                                        </div>
+                                        <div class="metric-item">
+                                            <span class="label">Fallback Engine</span>
+                                            <span class="value" id="ocr-val-fallback">—</span>
+                                        </div>
+                                        <div class="metric-item">
+                                            <span class="label">DPI Retry Passes</span>
+                                            <span class="value" id="ocr-val-retries">—</span>
+                                        </div>
+                                        <div class="metric-item">
+                                            <span class="label">Text Density Score</span>
+                                            <span class="value" id="ocr-val-density">—</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Page Breakdown Summary Table -->
+                                    <div style="margin-top: 10px;">
+                                        <span class="metric-label" style="display: block; margin-bottom: 8px;">Page Processing Breakdown</span>
+                                        <div style="overflow-x: auto; border: 1px solid var(--border-glass); border-radius: var(--radius-sm);">
+                                            <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;" id="ocr-pages-table">
+                                                <thead>
+                                                    <tr style="background: rgba(255, 255, 255, 0.02); border-bottom: 1px solid var(--border-glass);">
+                                                        <th style="padding: 8px 12px;">Page</th>
+                                                        <th style="padding: 8px 12px;">Engine</th>
+                                                        <th style="padding: 8px 12px;">DPI</th>
+                                                        <th style="padding: 8px 12px; text-align: right;">Confidence</th>
+                                                        <th style="padding: 8px 12px; text-align: right;">Quality</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="ocr-pages-table-body">
+                                                    <tr>
+                                                        <td colspan="5" style="padding: 16px; text-align: center; color: var(--text-muted);">
+                                                            No pages scanned yet. Please upload a PDF to inspect.
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- OCR Raw Text View Card -->
+                            <div class="card" id="ocr-raw-text-card">
+                                <div class="card-header">
+                                    <h3><i class="fa-solid fa-file-lines text-blue"></i> Raw OCR Extracted Text</h3>
+                                    <span class="badge tech-badge">Scrollable</span>
+                                </div>
+                                <div class="card-body" style="padding-top: 12px;">
+                                    <textarea id="ocr-raw-text-dump" readonly placeholder="Raw text output from the OCR pipeline will be displayed here..." style="width: 100%; height: 350px; background: rgba(10, 15, 30, 0.5); color: #94a3b8; font-family: monospace; font-size: 0.8rem; padding: 12px; border: 1px solid var(--border-glass); border-radius: var(--radius-sm); resize: vertical; outline: none; line-height: 1.5;"></textarea>
                                 </div>
                             </div>
                         </div>
