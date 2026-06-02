@@ -227,6 +227,61 @@ def classify_case_type_by_ocr_text(ocr_text: str) -> str:
             
     return None
 
+def extract_smart_context_for_llm(raw_ocr_text: str) -> str:
+    """
+    Constructs a highly-concentrated extract of the OCR text for the LLM.
+    Includes the front pages (metadata) and any sections/pages containing 
+    key compensation keywords to ensure no numbers or parameters are lost.
+    """
+    if len(raw_ocr_text) <= 30000:
+        return raw_ocr_text
+        
+    # 1. Keep the first 12,000 characters (cause titles, claimant metadata, dates)
+    front_context = raw_ocr_text[:12000]
+    
+    # 2. Extract paragraphs/lines from the rest of the text that contain high-value terms
+    remainder_text = raw_ocr_text[12000:]
+    lines = remainder_text.split("\n")
+    
+    high_value_keywords = [
+        "compensation", "multiplier", "dependency", "consortium", 
+        "funeral", "monthly income", "disability", "earning", "quantum", 
+        "award", "rs.", "rupees", "attender", "medical", "pain"
+    ]
+    
+    selected_chunks = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line_lower = lines[i].lower()
+        if any(kw in line_lower for kw in high_value_keywords):
+            # Capture a small window around the hit
+            start = max(0, i - 1)
+            end = min(n, i + 3)
+            chunk = "\n".join(lines[start:end])
+            selected_chunks.append(chunk)
+            i = end # Skip past the captured window to avoid overlaps
+        else:
+            i += 1
+            
+    # Combine selected chunks, limiting them to a reasonable size (e.g. 25,000 characters)
+    selected_text = "\n\n... [Section Extract] ...\n\n".join(selected_chunks)
+    if len(selected_text) > 25000:
+        selected_text = selected_text[:25000] + "\n\n... [Truncated due to size] ..."
+        
+    # Also grab the absolute end of the PDF (often contains final award totals/orders)
+    end_context = raw_ocr_text[-8000:]
+    
+    smart_text = (
+        f"{front_context}\n\n"
+        f"=== RELEVANT QUANTUM & COMPENSATION EXTRACTS ===\n\n"
+        f"{selected_text}\n\n"
+        f"=== FINAL JUDGMENT AWARD SECTIONS ===\n\n"
+        f"{end_context}"
+    )
+    
+    return smart_text
+
 def ai_data_recovery(raw_ocr_text: str) -> dict:
     """
     Invokes the LLM to parse raw OCR'd text and extract key legal claims fields.
@@ -273,9 +328,9 @@ def ai_data_recovery(raw_ocr_text: str) -> dict:
         "Do NOT write any preamble, explanation, markdown fences, or comments. Return only the JSON object."
     )
     
-    # We pass a truncated text block to prevent context window overhead on large files
-    truncated_text = raw_ocr_text[:15000]
-    prompt = f"Analyze this court judgment extract and recover the fields:\n\n{truncated_text}"
+    # We pass a highly-concentrated extract of the OCR text to ensure no parameters or numbers are lost
+    smart_text = extract_smart_context_for_llm(raw_ocr_text)
+    prompt = f"Analyze this court judgment extract and recover the fields:\n\n{smart_text}"
     
     response = generate_response(prompt, system_instruction)
     
