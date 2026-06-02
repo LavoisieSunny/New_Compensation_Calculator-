@@ -180,6 +180,53 @@ def generate_response(prompt: str, system_instruction: str = None) -> str:
         logger.error(f"Failed to generate LLM response: {str(e)}")
         return f"Error communicating with LLM client: {str(e)}"
 
+def classify_case_type_by_ocr_text(ocr_text: str) -> str:
+    """
+    Scans the OCR text for explicit case type keywords.
+    Prioritizes strong OCR evidence for Injury or Death over LLM guess.
+    """
+    text_lower = ocr_text.lower()
+    
+    injury_keywords = [
+        "injury", "disability", "permanent disability", "partial disability", 
+        "bodily injury", "enhancement", "claimant injury"
+    ]
+    
+    death_keywords = [
+        "death", "deceased", "fatal", "died", "legal heirs", "widow", "death claim"
+    ]
+    
+    injury_count = 0
+    for kw in injury_keywords:
+        injury_count += text_lower.count(kw)
+        
+    death_count = 0
+    for kw in death_keywords:
+        death_count += text_lower.count(kw)
+        
+    logger.info(f"OCR case type keyword count: Injury = {injury_count}, Death = {death_count}")
+    
+    if injury_count > death_count and injury_count >= 1:
+        return "injury"
+    elif death_count > injury_count and death_count >= 1:
+        return "death"
+    elif injury_count == death_count and injury_count >= 1:
+        # Tie-breaker using high-weight keywords
+        injury_weight = 0
+        for kw in ["permanent disability", "partial disability", "bodily injury", "claimant injury"]:
+            injury_weight += text_lower.count(kw) * 2
+            
+        death_weight = 0
+        for kw in ["deceased", "legal heirs", "death claim", "widow"]:
+            death_weight += text_lower.count(kw) * 2
+            
+        if injury_weight > death_weight:
+            return "injury"
+        elif death_weight > injury_weight:
+            return "death"
+            
+    return None
+
 def ai_data_recovery(raw_ocr_text: str) -> dict:
     """
     Invokes the LLM to parse raw OCR'd text and extract key legal claims fields.
@@ -188,20 +235,41 @@ def ai_data_recovery(raw_ocr_text: str) -> dict:
     system_instruction = (
         "You are an expert legal data extraction engine specializing in Motor Accident Claims Tribunal (MACT) judgments.\n"
         "Your task is to analyze the provided raw OCR text and extract key compensation parameters.\n"
-        "Return ONLY a clean, valid JSON object containing exactly the following keys (use null if the field is not present or cannot be determined):\n"
-        "- claimant_name (string or null)\n"
-        "- respondent_name (string or null)\n"
-        "- deceased_name (string or null)\n"
-        "- father_name (string or null)\n"
-        "- age (integer or null)\n"
-        "- occupation (string or null)\n"
-        "- monthly_income (float or null)\n"
-        "- disability_percentage (float or null)\n"
-        "- multiplier (integer or null)\n"
-        "- future_prospects (float or null)\n"
-        "- accident_date (string or null, formatted as DD-MM-YYYY)\n"
-        "- award_amount (float or null)\n"
-        "- interest_rate (float or null)\n"
+        "Return ONLY a clean, valid JSON object where every key maps to a sub-object containing 'value' and 'confidence' (float from 0.0 to 1.0 representing your model confidence in the extraction). Use null for 'value' and 0.0 for 'confidence' if the field is not present or cannot be determined.\n\n"
+        "Strictly extract these exact fields:\n"
+        "Common Fields:\n"
+        "- case_type (string: 'injury' or 'death')\n"
+        "- claimant_name (string)\n"
+        "- father_name (string)\n"
+        "- spouse_name (string)\n"
+        "- dob (string, formatted as DD-MM-YYYY)\n"
+        "- age (integer)\n"
+        "- occupation (string)\n"
+        "- monthly_income (float)\n"
+        "- dependents (integer)\n"
+        "- marital_status (string: 'married' or 'single')\n"
+        "- accident_date (string, formatted as DD-MM-YYYY)\n"
+        "- accident_place (string)\n\n"
+        "Injury Heads:\n"
+        "- medical_expenses (float)\n"
+        "- future_medical_expenses (float)\n"
+        "- pain_and_suffering (float)\n"
+        "- transportation (float)\n"
+        "- special_diet (float)\n"
+        "- attender_charges (float)\n"
+        "- loss_of_income (float)\n"
+        "- disability_percentage (float)\n\n"
+        "Death Heads:\n"
+        "- loss_of_consortium (float)\n"
+        "- funeral_expenses (float)\n"
+        "- loss_of_estate (float)\n\n"
+        "Example Output Format:\n"
+        "{\n"
+        "  \"case_type\": {\"value\": \"injury\", \"confidence\": 0.95},\n"
+        "  \"claimant_name\": {\"value\": \"John Doe\", \"confidence\": 0.98},\n"
+        "  \"medical_expenses\": {\"value\": 50000, \"confidence\": 0.93},\n"
+        "  \"pain_and_suffering\": {\"value\": 25000, \"confidence\": 0.81}\n"
+        "}\n\n"
         "Do NOT write any preamble, explanation, markdown fences, or comments. Return only the JSON object."
     )
     
@@ -215,31 +283,81 @@ def ai_data_recovery(raw_ocr_text: str) -> dict:
         # Extract JSON block using regex if LLM surrounds it with markdown tags
         json_match = re.search(r"\{.*\}", response, re.DOTALL)
         if json_match:
-            data = json.loads(json_match.group(0))
+            raw_data = json.loads(json_match.group(0))
         else:
-            data = json.loads(response)
+            raw_data = json.loads(response)
             
-        # Add aliases for seamless mapping into different parsed field structures
+        data = {}
+        confidence_scores = {}
+        
+        for key, field_obj in raw_data.items():
+            if isinstance(field_obj, dict) and "value" in field_obj:
+                val = field_obj.get("value")
+                conf = field_obj.get("confidence", 1.0)
+            else:
+                val = field_obj
+                conf = 1.0 if val is not None else 0.0
+                
+            data[key] = val
+            confidence_scores[key] = {"confidence": conf}
+            
+        # Case type lock and deterministic precedence logic (Part 2)
+        ocr_evidence_case = classify_case_type_by_ocr_text(raw_ocr_text)
+        if ocr_evidence_case:
+            case_type_val = ocr_evidence_case
+            case_type_conf = 1.0
+            ocr_evidence_str = ocr_evidence_case.upper()
+            logger.info(f"Deterministic OCR Case Type Match overrides LLM: {case_type_val.upper()}")
+        else:
+            llm_case_obj = raw_data.get("case_type", {})
+            if isinstance(llm_case_obj, dict):
+                case_type_val = llm_case_obj.get("value")
+                case_type_conf = llm_case_obj.get("confidence", 0.0)
+            else:
+                case_type_val = llm_case_obj
+                case_type_conf = 1.0 if case_type_val else 0.0
+                
+            if not case_type_val or case_type_val not in ["injury", "death"]:
+                case_type_val = "death"
+                case_type_conf = 0.5
+            ocr_evidence_str = "UNCLEAR"
+            
+        data["case_type"] = case_type_val
+        confidence_scores["case_type"] = {"confidence": case_type_conf}
+        
+        # Backward-compatible aliases for format_suggestions_for_calculator mapping
         if "claimant_name" in data and data["claimant_name"]:
             data["name"] = data["claimant_name"]
             data["injured_name"] = data["claimant_name"]
-        elif "deceased_name" in data and data["deceased_name"]:
-            data["name"] = data["deceased_name"]
-            data["injured_name"] = data["deceased_name"]
-            
-        if "disability_percentage" in data and data["disability_percentage"] is not None:
-            data["disability"] = data["disability_percentage"]
-            
-        if "future_prospects" in data and data["future_prospects"] is not None:
-            data["future_prospect"] = data["future_prospects"]
+            data["deceased_name"] = data["claimant_name"]
+            confidence_scores["name"] = confidence_scores["claimant_name"]
+            confidence_scores["injured_name"] = confidence_scores["claimant_name"]
+            confidence_scores["deceased_name"] = confidence_scores["claimant_name"]
             
         if "accident_date" in data and data["accident_date"]:
             data["date_of_accident"] = data["accident_date"]
+            confidence_scores["date_of_accident"] = confidence_scores["accident_date"]
             
-        if "award_amount" in data and data["award_amount"] is not None:
-            data["total_compensation"] = data["award_amount"]
+        if "dob" in data and data["dob"]:
+            data["date_of_birth"] = data["dob"]
+            confidence_scores["date_of_birth"] = confidence_scores["dob"]
             
-        logger.info(f"AI Data Recovery successful: {list(data.keys())}")
+        if "accident_place" in data and data["accident_place"]:
+            data["place_of_accident"] = data["accident_place"]
+            confidence_scores["place_of_accident"] = confidence_scores["accident_place"]
+            
+        if "disability_percentage" in data and data["disability_percentage"] is not None:
+            data["disability"] = data["disability_percentage"]
+            confidence_scores["disability"] = confidence_scores["disability_percentage"]
+            
+        if "loss_of_consortium" in data and data["loss_of_consortium"] is not None:
+            data["consortium"] = data["loss_of_consortium"]
+            confidence_scores["consortium"] = confidence_scores["loss_of_consortium"]
+            
+        data["confidence_scores"] = confidence_scores
+        data["ocr_evidence_case"] = ocr_evidence_str
+        
+        logger.info(f"AI Data Recovery successful with structured confidences: {list(data.keys())}")
         return data
     except Exception as e:
         logger.error(f"Failed to parse AI Data Recovery JSON: {str(e)}. Raw response: {response}")

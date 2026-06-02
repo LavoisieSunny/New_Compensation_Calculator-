@@ -17,6 +17,93 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentCalculationAmount = 0;
     let currentOcrRawText = []; // Recover raw text from the last successful single OCR
     
+    // Global Cache for Extracted Field Population (Part 5)
+    let lastExtractedFields = {};
+    let lastExtractedConfidences = {};
+
+    // Programmatically Inject Suggestion Badge CSS Styles
+    const styleEl = document.createElement("style");
+    styleEl.innerHTML = `
+        .suggested-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 4px;
+            background: rgba(245, 158, 11, 0.1);
+            color: #f59e0b;
+            border: 1px solid rgba(245, 158, 11, 0.25);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.725rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+            width: fit-content;
+        }
+        .suggested-badge:hover {
+            background: rgba(245, 158, 11, 0.2);
+            border-color: rgba(245, 158, 11, 0.4);
+            transform: translateY(-1px);
+        }
+        .low-confidence-input {
+            border-color: rgba(245, 158, 11, 0.4) !important;
+            box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15) !important;
+        }
+    `;
+    document.head.appendChild(styleEl);
+
+    // Dynamically Inject Audit Log Card (Part 7)
+    const ocrQualityTab = document.getElementById("pane-tab-ocr-quality-content");
+    if (ocrQualityTab) {
+        let auditCard = document.getElementById("extraction-audit-log-card");
+        if (!auditCard) {
+            auditCard = document.createElement("div");
+            auditCard.id = "extraction-audit-log-card";
+            auditCard.className = "card";
+            auditCard.style.marginTop = "20px";
+            auditCard.innerHTML = `
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3><i class="fa-solid fa-clipboard-list text-glow" style="color: #f59e0b;"></i> Case Type &amp; Extraction Audit Log</h3>
+                    <span class="badge tech-badge" id="audit-log-badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">Audit Log</span>
+                </div>
+                <div class="card-body" style="padding-top: 12px; display: flex; flex-direction: column; gap: 15px;">
+                    <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
+                        <div class="metric-item">
+                            <span class="label">User Case Type</span>
+                            <span class="value" id="audit-val-user-case" style="color: #60a5fa; font-weight: 600;">—</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="label">LLM Case Type</span>
+                            <span class="value" id="audit-val-llm-case" style="color: #c084fc; font-weight: 600;">—</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="label">OCR Evidence</span>
+                            <span class="value" id="audit-val-ocr-evidence" style="color: #34d399; font-weight: 600;">—</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="label">Avg Confidence</span>
+                            <span class="value" id="audit-val-confidence" style="color: #f59e0b; font-weight: 600;">—</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="label">Overwrite Blocked</span>
+                            <span class="value" id="audit-val-overwrite-blocked" style="font-weight: 700;">—</span>
+                        </div>
+                    </div>
+                    <div style="background: rgba(10, 15, 30, 0.6); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 12px; font-family: monospace; font-size: 0.8rem; max-height: 150px; overflow-y: auto; line-height: 1.4; color: #94a3b8;" id="audit-log-terminal">
+                        <span style="color: #64748b;">[SYSTEM] Ready. Awaiting document upload or LLM extraction...</span>
+                    </div>
+                </div>
+            `;
+            const rawCard = document.getElementById("ocr-raw-text-card");
+            if (rawCard) {
+                ocrQualityTab.insertBefore(auditCard, rawCard);
+            } else {
+                ocrQualityTab.appendChild(auditCard);
+            }
+        }
+    }
+
     // --- DOM REFERENCES ---
     const navItems = document.querySelectorAll(".nav-item");
     const viewports = document.querySelectorAll(".tab-viewport");
@@ -449,6 +536,8 @@ document.addEventListener("DOMContentLoaded", () => {
             evaluatorCard.classList.remove("hidden-section");
             evaluatorCard.classList.add("show");
         }
+        // Populate fields from local cache if we already ran extraction!
+        populateFieldsForActiveCaseType();
         
         updateLiveCalculations();
     });
@@ -1009,74 +1098,337 @@ document.addEventListener("DOMContentLoaded", () => {
         }, 1500);
     }
 
-    // Apply parsed suggestions
-    function applyAllOcrSuggestions(suggestions) {
-        // Clear all previous low-confidence warning labels, styles, and AI metadata badges
+    // Helper to populate fields based on active case type (Part 5 & Part 6)
+    function populateFieldsForActiveCaseType() {
+        const activeCaseType = caseTypeSelect.value;
+        if (!activeCaseType) return;
+
+        // Clear all previous low-confidence warning labels, styles, and AI metadata badges again to refresh
         document.querySelectorAll(".verification-warning").forEach(el => el.remove());
         document.querySelectorAll(".low-confidence-input").forEach(el => el.classList.remove("low-confidence-input"));
         document.querySelectorAll(".ai-metadata-badge").forEach(el => el.remove());
 
-        // Extract case type
-        const caseType = suggestions.case_type;
-        if (caseType) {
-            caseTypeSelect.value = caseType;
-            caseTypeSelect.dispatchEvent(new Event("change"));
-        }
-
-        const fields = suggestions.fields || {};
-
-        // Helper to map incoming clean fields to the corresponding DOM element IDs
-        const fieldMapping = {
-            "deceased_name": "name",
-            "injured_name": "name",
+        // Field definitions and mapping to DOM input IDs
+        // Always Populate (Part 6)
+        const commonMapping = {
+            "name": "name",
             "father_name": "father-name",
-            "place_of_accident": "place-of-accident",
+            "date_of_birth": "date-of-birth",
             "age": "age",
             "monthly_income": "monthly-income",
-            "dependents": "dependents",
-            "marital_status": "marital-status",
-            "future_prospect": "future-prospect",
-            "disability": "disability",
+            "date_of_accident": "date-of-accident",
+            "place_of_accident": "place-of-accident"
+        };
+
+        // Injury Specific (Part 6)
+        const injuryMapping = {
             "medical_expenses": "medical-expenses",
             "future_medical_expenses": "future-medical-expenses",
             "pain_and_suffering": "pain-and-suffering",
             "transportation": "transportation",
             "special_diet": "special-diet",
             "attender_charges": "attender-charges",
-            "loss_of_income": "loss-of-income"
+            "loss_of_income": "loss-of-income",
+            "disability": "disability"
         };
 
-        // Populate form inputs
-        Object.keys(fieldMapping).forEach(apiKey => {
-            const domId = fieldMapping[apiKey];
-            const val = fields[apiKey];
-            if (val !== undefined && val !== null && val !== "") {
-                const el = document.getElementById(domId);
-                if (el) {
+        // Death Specific (Part 6)
+        const deathMapping = {
+            "consortium": "consortium",
+            "funeral_expenses": "funeral-expenses",
+            "loss_estate": "loss-estate",
+            "dependents": "dependents",
+            "marital_status": "marital-status"
+        };
+
+        // Helper to populate a single DOM element based on key, inputId, and active status
+        function populateField(cacheKey, inputId, isAllowed) {
+            const el = document.getElementById(inputId);
+            if (!el) return;
+
+            if (!isAllowed) {
+                // If not allowed for this mode, do NOT populate or show badges.
+                return;
+            }
+
+            const val = lastExtractedFields[cacheKey];
+            const conf = lastExtractedConfidences[cacheKey] !== undefined ? lastExtractedConfidences[cacheKey] : 1.0;
+
+            if (val === undefined || val === null || val === "") {
+                return;
+            }
+
+            // Apply Confidence Gate Rules (Part 4)
+            if (conf >= 0.80) {
+                // Auto-fill
+                if (inputId === "date-of-birth" || inputId === "date-of-accident") {
+                    let htmlDate = val;
+                    if (val.includes("-")) {
+                        const parts = val.split("-");
+                        if (parts.length === 3 && parts[2].length === 4) {
+                            htmlDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                        }
+                    }
+                    el.value = htmlDate;
+                } else {
                     el.value = val;
-                    el.dispatchEvent(new Event("input"));
-                    el.dispatchEvent(new Event("change"));
                 }
+                el.dispatchEvent(new Event("input"));
+                el.dispatchEvent(new Event("change"));
+            } else if (conf >= 0.60) {
+                // Suggest but do not auto-fill. Show amber badge.
+                const parent = el.closest(".form-group");
+                if (parent) {
+                    if (!parent.querySelector(`.suggested-badge[data-field="${cacheKey}"]`)) {
+                        const badge = document.createElement("div");
+                        badge.className = "suggested-badge ai-metadata-badge";
+                        badge.setAttribute("data-field", cacheKey);
+                        badge.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> Suggest: ${val} (${Math.round(conf * 100)}%)`;
+                        
+                        badge.addEventListener("click", () => {
+                            if (inputId === "date-of-birth" || inputId === "date-of-accident") {
+                                let htmlDate = val;
+                                if (val.includes("-")) {
+                                    const parts = val.split("-");
+                                    if (parts.length === 3 && parts[2].length === 4) {
+                                        htmlDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                                    }
+                                }
+                                el.value = htmlDate;
+                            } else {
+                                el.value = val;
+                            }
+                            el.dispatchEvent(new Event("input"));
+                            el.dispatchEvent(new Event("change"));
+                            badge.remove();
+                            showToast(`Applied suggested value ${val} to field!`, "success");
+                        });
+                        
+                        parent.appendChild(badge);
+                    }
+                }
+            } else {
+                console.log(`[CONFIDENCE] Ignored field '${cacheKey}' due to low confidence (${conf.toFixed(2)})`);
+            }
+        }
+
+        // Run population for all common fields
+        Object.keys(commonMapping).forEach(cacheKey => {
+            populateField(cacheKey, commonMapping[cacheKey], true);
+        });
+
+        // Run population for Injury specific fields
+        const isInjury = (activeCaseType === "injury");
+        Object.keys(injuryMapping).forEach(cacheKey => {
+            populateField(cacheKey, injuryMapping[cacheKey], isInjury);
+        });
+
+        // Run population for Death specific fields
+        const isDeath = (activeCaseType === "death");
+        Object.keys(deathMapping).forEach(cacheKey => {
+            populateField(cacheKey, deathMapping[cacheKey], isDeath);
+        });
+        
+        updateLiveCalculations();
+    }
+
+    // Helper to update the visual Audit Log (Part 7)
+    function updateAuditLog(userCase, llmCase, ocrEvidence, avgConfidence, overwriteBlocked) {
+        const userCaseVal = document.getElementById("audit-val-user-case");
+        const llmCaseVal = document.getElementById("audit-val-llm-case");
+        const ocrEvidenceVal = document.getElementById("audit-val-ocr-evidence");
+        const confidenceVal = document.getElementById("audit-val-confidence");
+        const overwriteBlockedVal = document.getElementById("audit-val-overwrite-blocked");
+        const terminal = document.getElementById("audit-log-terminal");
+
+        const displayMap = {
+            "injury": "Injury Case",
+            "death": "Death Case",
+            "None Selected": "None Selected",
+            "Unspecified": "Unspecified"
+        };
+
+        if (userCaseVal) userCaseVal.textContent = displayMap[userCase] || userCase;
+        if (llmCaseVal) llmCaseVal.textContent = displayMap[llmCase] || llmCase;
+        if (ocrEvidenceVal) {
+            ocrEvidenceVal.textContent = ocrEvidence;
+            if (ocrEvidence === "INJURY") {
+                ocrEvidenceVal.style.color = "#34d399";
+            } else if (ocrEvidence === "DEATH") {
+                ocrEvidenceVal.style.color = "#f43f5e";
+            } else {
+                ocrEvidenceVal.style.color = "#f59e0b";
+            }
+        }
+        if (confidenceVal) confidenceVal.textContent = (avgConfidence * 100).toFixed(1) + "%";
+        
+        if (overwriteBlockedVal) {
+            overwriteBlockedVal.textContent = overwriteBlocked ? "TRUE" : "FALSE";
+            if (overwriteBlocked) {
+                overwriteBlockedVal.style.color = "#ef4444";
+                overwriteBlockedVal.className = "value text-glow";
+            } else {
+                overwriteBlockedVal.style.color = "#10b981";
+                overwriteBlockedVal.className = "value";
+            }
+        }
+
+        if (terminal) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logMsg = document.createElement("div");
+            logMsg.style.marginBottom = "4px";
+            
+            if (overwriteBlocked) {
+                logMsg.innerHTML = `<span style="color: #ef4444;">[${timestamp}] [WARN] Overwrite Blocked!</span> Manual Case Type '${displayMap[userCase]}' preserved over predicted '${displayMap[llmCase]}'.`;
+            } else {
+                logMsg.innerHTML = `<span style="color: #34d399;">[${timestamp}] [AUDIT]</span> Applied suggestions. User: ${displayMap[userCase]} | LLM: ${displayMap[llmCase]} | OCR: ${ocrEvidence}.`;
+            }
+            
+            if (terminal.children.length > 20) {
+                terminal.removeChild(terminal.children[0]);
+            }
+            
+            terminal.appendChild(logMsg);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+    }
+
+    // Apply parsed suggestions
+    function applyAllOcrSuggestions(suggestions, confidenceScores = null, ocrEvidence = null, rawRecovered = null) {
+        // Clear all previous low-confidence warning labels, styles, and AI metadata badges
+        document.querySelectorAll(".verification-warning").forEach(el => el.remove());
+        document.querySelectorAll(".low-confidence-input").forEach(el => el.classList.remove("low-confidence-input"));
+        document.querySelectorAll(".ai-metadata-badge").forEach(el => el.remove());
+
+        // Extract case type (Part 1 Manual case lock)
+        let suggestionsCaseType = suggestions.case_type;
+        const currentCaseType = caseTypeSelect.value;
+        let overwriteBlocked = false;
+        let loggedUserCaseType = currentCaseType || "None Selected";
+        let loggedLlmCaseType = suggestionsCaseType || "Unspecified";
+
+        if (currentCaseType && currentCaseType !== "") {
+            if (suggestionsCaseType && suggestionsCaseType !== currentCaseType) {
+                overwriteBlocked = true;
+            }
+            suggestionsCaseType = currentCaseType;
+        } else {
+            if (suggestionsCaseType) {
+                caseTypeSelect.value = suggestionsCaseType;
+                caseTypeSelect.dispatchEvent(new Event("change"));
+            }
+        }
+
+        // Cache all fields (Part 5 & Part 6)
+        const fields = suggestions.fields || {};
+        
+        Object.keys(fields).forEach(key => {
+            lastExtractedFields[key] = fields[key];
+        });
+
+        ["date_of_birth", "date_of_accident"].forEach(key => {
+            if (fields[key]) {
+                lastExtractedFields[key] = fields[key];
             }
         });
 
-        // Convert and apply dates
-        ["date_of_birth", "date_of_accident"].forEach(key => {
-            const val = fields[key];
-            if (val && val.includes("-")) {
-                const parts = val.split("-");
-                if (parts.length === 3 && parts[2].length === 4) {
-                    const htmlDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
-                    const targetEl = key === "date_of_birth" ? dobInput : doaInput;
-                    if (targetEl) {
-                        targetEl.value = htmlDate;
-                        targetEl.dispatchEvent(new Event("change"));
+        // Merge raw recovered details if LLM is executed (Part 5 offline store)
+        if (rawRecovered) {
+            const keyMappings = {
+                "claimant_name": "name",
+                "deceased_name": "name",
+                "injured_name": "name",
+                "father_name": "father_name",
+                "place_of_accident": "place_of_accident",
+                "accident_place": "place_of_accident",
+                "age": "age",
+                "monthly_income": "monthly_income",
+                "dependents": "dependents",
+                "marital_status": "marital_status",
+                "future_prospect": "future_prospect",
+                "disability": "disability",
+                "disability_percentage": "disability",
+                "medical_expenses": "medical_expenses",
+                "future_medical_expenses": "future_medical_expenses",
+                "pain_and_suffering": "pain_and_suffering",
+                "transportation": "transportation",
+                "special_diet": "special_diet",
+                "attender_charges": "attender_charges",
+                "loss_of_income": "loss_of_income",
+                "loss_of_consortium": "consortium",
+                "consortium": "consortium",
+                "funeral_expenses": "funeral_expenses",
+                "loss_of_estate": "loss_estate",
+                "loss_estate": "loss_estate",
+                "dob": "date_of_birth",
+                "date_of_birth": "date_of_birth",
+                "accident_date": "date_of_accident",
+                "date_of_accident": "date_of_accident"
+            };
+
+            Object.keys(keyMappings).forEach(rawKey => {
+                const cacheKey = keyMappings[rawKey];
+                const rawObj = rawRecovered[rawKey];
+                let val = null;
+                let conf = null;
+
+                if (rawObj && typeof rawObj === "object" && "value" in rawObj) {
+                    val = rawObj.value;
+                    conf = rawObj.confidence;
+                } else if (rawObj !== undefined) {
+                    val = rawObj;
+                }
+
+                if (val !== null && val !== undefined && val !== "") {
+                    lastExtractedFields[cacheKey] = val;
+                    if (conf !== null && conf !== undefined) {
+                        lastExtractedConfidences[cacheKey] = conf;
                     }
                 }
+            });
+        }
+
+        // Cache confidences
+        const lowConfFields = suggestions.low_confidence_fields || [];
+        const combinedKeys = new Set([...Object.keys(lastExtractedFields), "date_of_birth", "date_of_accident"]);
+        
+        combinedKeys.forEach(key => {
+            if (confidenceScores && confidenceScores[key]) {
+                const confVal = confidenceScores[key].confidence !== undefined 
+                    ? confidenceScores[key].confidence 
+                    : confidenceScores[key];
+                lastExtractedConfidences[key] = typeof confVal === "number" ? confVal : parseFloat(confVal) || 1.0;
+            } else if (lastExtractedConfidences[key] === undefined) {
+                lastExtractedConfidences[key] = lowConfFields.includes(key) ? 0.65 : 1.0;
             }
         });
-        
-        alert(`Auto-filled workstation variables successfully! DOB and accident dates converted.`);
+
+        // Run case-specific field population (Part 5 & Part 6)
+        populateFieldsForActiveCaseType();
+
+        // Telemetry Audit log update (Part 7)
+        let evidenceStr = ocrEvidence || "UNCLEAR";
+        if (rawRecovered && rawRecovered.ocr_evidence_case) {
+            evidenceStr = rawRecovered.ocr_evidence_case;
+        }
+
+        let totalConf = 0;
+        let confCount = 0;
+        Object.keys(lastExtractedConfidences).forEach(k => {
+            if (lastExtractedFields[k] !== undefined && lastExtractedFields[k] !== "") {
+                totalConf += lastExtractedConfidences[k];
+                confCount++;
+            }
+        });
+        const avgConf = confCount > 0 ? (totalConf / confCount) : 0.85;
+
+        updateAuditLog(loggedUserCaseType, loggedLlmCaseType, evidenceStr, avgConf, overwriteBlocked);
+
+        if (overwriteBlocked) {
+            showToast(`Preserved manually selected Case Type (${loggedUserCaseType})! Overwrite blocked.`, "warning");
+        } else {
+            showToast(`Workstation variables successfully auto-filled!`, "success");
+        }
         
         // Auto trigger automatic recalculation after autofill is completed (Task 18)
         setTimeout(() => {
@@ -1090,6 +1442,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // ==========================================================================
     // AI DATA RECOVERY (LLM OPTIMIZED PARSING EXTRACTION)
     // ==========================================================================
+    // AI DATA RECOVERY (LLM OPTIMIZED PARSING EXTRACTION) (Part 3, Part 4 & Part 5 integration)
     if (aiExtractBtn) {
         aiExtractBtn.addEventListener("click", async () => {
             if (!currentOcrRawText || currentOcrRawText.length === 0) {
@@ -1097,7 +1450,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            // Show loading spinner
             const formPanel = document.querySelector("#tab-calculator .panel.scroll-y");
             const loader = document.createElement("div");
             loader.className = "form-ocr-loader";
@@ -1122,8 +1474,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 const data = await response.json();
 
                 if (data.success) {
-                    applyAllOcrSuggestions(data.suggestions);
-                    showToast("AI data extraction complete! All recovered parameters auto-filled into form.", "success");
+                    const confidenceScores = data.raw_recovered ? data.raw_recovered.confidence_scores : null;
+                    const ocrEvidence = data.raw_recovered ? data.raw_recovered.ocr_evidence_case : null;
+                    applyAllOcrSuggestions(data.suggestions, confidenceScores, ocrEvidence, data.raw_recovered);
+                    showToast("AI data extraction complete! All recovered parameters cached internally.", "success");
                 } else {
                     showToast("AI extraction failed to extract fields.", "error");
                 }
